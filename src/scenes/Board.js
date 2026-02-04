@@ -78,6 +78,18 @@ export default class Board extends Phaser.Scene {
             MELEE_FIGHT: 'melee_fight'
         };
 
+        // --- MAPA DE ADYACENCIAS ---
+        // Define quién es vecino de quién
+        this.adyacencias = {
+            'bekstenholm': ['klifstenvik', 'beknesvik', 'aenesholm', 'aestensand', 'bekdalsand', 'klifdalholm'],
+            'klifstenvik': ['bekstenholm', 'klifdalholm', 'beknesvik'],
+            'beknesvik':   ['bekstenholm', 'klifstenvik', 'aenesholm'],
+            'aenesholm':   ['bekstenholm', 'beknesvik', 'aestensand'],
+            'aestensand':  ['bekstenholm', 'aenesholm', 'bekdalsand'],
+            'bekdalsand':  ['bekstenholm', 'aestensand', 'klifdalholm'],
+            'klifdalholm': ['bekstenholm', 'bekdalsand', 'klifstenvik']
+        };
+
         this.estadoActual = this.estados.COLOCAR_GUERRERO;
         this.cartasEmpty = [];
         this.cartasUsadas = 0;
@@ -208,6 +220,13 @@ export default class Board extends Phaser.Scene {
             if (!this.coins.includes(obj)) return;
             if (this.estadoActual !== this.estados.TIRAR_MONEDAS) return;
             
+            // --- NUEVO: PROTECCIÓN CONTRA CLICS RÁPIDOS ---
+            if (this.monedasLanzandose) return; // Si ya se están moviendo, ignorar clic
+            if (this.currentHordeValue <= 0) return; // Si ya no quedan tiradas, ignorar
+            
+            this.monedasLanzandose = true; // ACTIVAMOS EL BLOQUEO
+            // ----------------------------------------------
+
             this.currentHordeValue--;
             this.barajarMonedas();
             
@@ -215,9 +234,14 @@ export default class Board extends Phaser.Scene {
             if (this.currentHordeValue === 0) {
                 this.time.delayedCall(1700, () => {
                     this.cambiarEstado(this.estados.SELECCIONAR_CARTA);
+                    // Importante: No hace falta poner monedasLanzandose = false aquí 
+                    // porque cambiamos de estado y este listener ya no actuará.
                 });
             }
         });
+
+        // Boton para controlar si las monedas se estan lanzando
+        this.monedasLanzandose = false;
 
         // --- SISTEMA DE HORDAS ---
         this.maxHordas = 10;
@@ -239,14 +263,21 @@ export default class Board extends Phaser.Scene {
         ).setOrigin(0.5).setInteractive().setVisible(false);
 
         this.botonFight.on('pointerdown', () => {
-            this.realizarRonda();
-            this.regenerarCartasUsadas();
-            this.cambiarEstado(this.estados.COLOCAR_GUERRERO);
-            
-            // Reset visual
-            this.archerBlank.setVisible(false);
-            this.archerRight.setVisible(true);
-            this.cartasUsadas = 0;
+            // 1. Resolver el combate cuerpo a cuerpo primero
+            this.resolverCombate();
+
+            // 2. Avanzar la ronda (cambiar cartas, regenerar, etc.)
+            // Damos un pequeño delay para que se vea la muerte de las fichas antes del reset
+            this.time.delayedCall(800, () => {
+                this.realizarRonda();
+                this.regenerarCartasUsadas();
+                this.cambiarEstado(this.estados.COLOCAR_GUERRERO);
+                
+                // Reset visual UI
+                this.archerBlank.setVisible(false);
+                this.archerRight.setVisible(true);
+                this.cartasUsadas = 0;
+            });
         });
 
         // Efecto hover
@@ -340,42 +371,66 @@ export default class Board extends Phaser.Scene {
             }
         });
 
-        // Move Warrior hace lo mismo por ahora
-        this.botonMoveWarrior.on('pointerdown', () => {
+        // Listener de Move Warrior
+        this.botonMoveWarrior.on('pointerdown', async () => {
             if (!this.cartaSeleccionada || this.cartasUsadas >= 2) return;
             
             this.botonesJuego.forEach(b => b.setVisible(false));
             
-            this.moveWarrior();
+            // Llamamos a la función asíncrona y esperamos respuesta (true/false)
+            const movimientoRealizado = await this.moveWarrior();
 
-            this.colocarCartaEmpty(this.cartaSeleccionada);
-            this.cartaSeleccionada.setVisible(false);            
-            
-            this.attackCards.forEach(c => c.clearTint());
-            this.cartasUsadas++;
-            
-            if (this.cartasUsadas === 2) {
-                this.cambiarEstado(this.estados.MELEE_FIGHT);
+            if (movimientoRealizado) {
+                console.log('Movimiento completado.');
+                this.colocarCartaEmpty(this.cartaSeleccionada);
+                this.cartaSeleccionada.setVisible(false);            
+                this.attackCards.forEach(c => c.clearTint());
+                this.cartasUsadas++;
+                
+                if (this.cartasUsadas === 2) {
+                    this.cambiarEstado(this.estados.MELEE_FIGHT);
+                }
+            } else {
+                console.log('Movimiento cancelado.');
+                this.cartaSeleccionada.selected = false;
+                this.cartaSeleccionada.clearTint();
+                this.cartaSeleccionada = null;
+                this.attackCards.forEach(c => c.setInteractive());
+                this.logoIngles.setVisible(true);
+                this.cambiarEstado(this.estados.SELECCIONAR_CARTA);
             }
         });
 
-        // Attack hace lo mismo por ahora
+        // Listener de Attack (Modificado para gestionar cancelación)
         this.botonAttack.on('pointerdown', async () => {
             if (!this.cartaSeleccionada || this.cartasUsadas >= 2) return;
             
             this.botonesJuego.forEach(b => b.setVisible(false));
             
-            await this.attack(this.cartaSeleccionada); // espera hasta que el jugador termine el ataque
+            // Esperamos a que el jugador decida (Atacar o Cancelar)
+            const ataqueRealizado = await this.attack(this.cartaSeleccionada); 
             
-            console.log('Ataque completado.');
-            this.colocarCartaEmpty(this.cartaSeleccionada);
-            this.cartaSeleccionada.setVisible(false);            
-            
-            this.attackCards.forEach(c => c.clearTint());
-            this.cartasUsadas++;
-            
-            if (this.cartasUsadas === 2) {
-                this.cambiarEstado(this.estados.MELEE_FIGHT);
+            if (ataqueRealizado) {
+                console.log('Ataque completado con éxito.');
+                this.colocarCartaEmpty(this.cartaSeleccionada);
+                this.cartaSeleccionada.setVisible(false);            
+                this.attackCards.forEach(c => c.clearTint());
+                this.cartasUsadas++;
+                
+                if (this.cartasUsadas === 2) {
+                    this.cambiarEstado(this.estados.MELEE_FIGHT);
+                }
+            } else {
+                console.log('Ataque cancelado. Volviendo a selección.');
+                // Canceló: Restauramos el estado visual
+                this.cartaSeleccionada.selected = false;
+                this.cartaSeleccionada.clearTint();
+                this.cartaSeleccionada = null; // Limpiamos la selección
+                this.attackCards.forEach(c => c.setInteractive()); // Reactivamos interactividad
+                this.logoIngles.setVisible(true); // Restaurar logo si hace falta
+                
+                // Volvemos explícitamente al estado de seleccionar
+                this.cambiarEstado(this.estados.SELECCIONAR_CARTA);
             }
         });
     }
@@ -446,47 +501,54 @@ export default class Board extends Phaser.Scene {
     }
 
     // ============================================================
-    // COLOCAR GUERRERO
+    // COLOCAR GUERRERO (Actualizado)
     // ============================================================
     colocarGuerrero(territorio) {
+        // Cálculo inicial de posición (para que aparezca antes de animarse)
         const nombreArriba = ['klifdalholm', 'beknesvik', 'aenesholm', 'bekdalsand'];
         const yBase = nombreArriba.includes(territorio.key) ? 55 : -55;
-        const guerreros = territorio.list.filter(f => f.tipo === 'guerrero');
-        const posicionesX = [-50, 0, 50];
-
-        if (guerreros.length >= 3) return;
-
-        const ficha = this.add.image(posicionesX[guerreros.length], yBase, 'guerrero').setScale(0.47);
+        
+        // Creamos la ficha en el centro (o donde quieras que nazca)
+        const ficha = this.add.image(0, yBase, 'guerrero').setScale(0.47);
         ficha.tipo = 'guerrero';
         territorio.add(ficha);
 
+        // Actualizamos la visualización (lineal o apilada)
+        this.apilarFichasEnCentro(territorio, 'guerrero');
+
+        const guerreros = territorio.list.filter(f => f.tipo === 'guerrero').length;
         const orcos = territorio.list.filter(f => f.tipo === 'orco').length;
-        console.log(`${territorio.key}: Guerreros=${guerreros.length + 1}, Orcos=${orcos}`);
+        console.log(`${territorio.key}: Guerreros=${guerreros}, Orcos=${orcos}`);
     }
 
     // ============================================================
-    // COLOCAR ORCO
+    // COLOCAR ORCO (Actualizado)
     // ============================================================
     colocarOrco(territorio) {
         if (this.estadoActual !== this.estados.TIRAR_MONEDAS) return;
 
         const nombreAbajo = ['klifstenvik', 'bekstenholm', 'aestensand'];
         const yBase = nombreAbajo.includes(territorio.key) ? -5 : 0;
-        const posicionesX = [-52, 0, 52];
-        const orcos = territorio.list.filter(f => f.tipo === 'orco');
-        
-        if (orcos.length >= 3) {
-            this.parpadearDestruirTerritorio(territorio);
-        }
 
-        if (orcos.length >= 3) return;
-
-        const ficha = this.add.image(posicionesX[orcos.length], yBase, 'orco').setScale(0.42);
+        // Añadir ficha nueva
+        const ficha = this.add.image(0, yBase, 'orco').setScale(0.42);
         ficha.tipo = 'orco';
         territorio.add(ficha);
 
+        // Actualizar visualización (lineal o apilada)
+        this.apilarFichasEnCentro(territorio, 'orco');
+
+        // Lógica de Destrucción
+        const orcosCount = territorio.list.filter(f => f.tipo === 'orco').length;
+        
+        // Si llegamos exactamente a 3, destruimos.
+        // Si ya hay más de 3, sigue destruido (ya lo gestiona destruirTerritorio internamente)
+        if (orcosCount === 3) {
+            this.destruirTerritorio(territorio);
+        }
+
         const guerreros = territorio.list.filter(f => f.tipo === 'guerrero').length;
-        console.log(`${territorio.key}: Guerreros=${guerreros}, Orcos=${orcos.length + 1}`);
+        console.log(`${territorio.key}: Guerreros=${guerreros}, Orcos=${orcosCount}`);
     }
 
     // ============================================================
@@ -546,7 +608,14 @@ export default class Board extends Phaser.Scene {
                 });
 
                 // --- 4. COLOCAR ORCO SEGÚN COMBINACIÓN ---
+                // --- 4. COLOCAR ORCO SEGÚN COMBINACIÓN ---
                 this.time.delayedCall(400, () => {
+                    
+                    // --- NUEVO: DESBLOQUEAR ---
+                    // Permitimos volver a tirar (si quedan tiradas)
+                    this.monedasLanzandose = false; 
+                    // --------------------------
+
                     if (resultados.length === 0) {
                         if (this.archerBlank.visible) return;
                         const text = this.botonflechasRestantes.text;
@@ -618,9 +687,15 @@ export default class Board extends Phaser.Scene {
     }
 
     // ============================================================
-    // DESTRUIR TERRITORIO
+    // DESTRUIR TERRITORIO (Animación y Cambio de Estado)
     // ============================================================
     destruirTerritorio(territorio) {
+        // Si ya está destruido, no hacemos nada
+        if (territorio.destruido) return;
+
+        console.log(`¡El territorio ${territorio.key} ha sido destruido!`);
+        territorio.destruido = true; // Marcamos el estado irreversible
+
         const normal = territorio.list[0];
         const destroyed = territorio.list[1];
         
@@ -633,10 +708,11 @@ export default class Board extends Phaser.Scene {
             repeat: maxFlickers - 1,
             callback: () => {
                 count++;
+                // Alternar visibilidad para efecto de parpadeo
                 normal.setVisible(!normal.visible);
                 destroyed.setVisible(!destroyed.visible);
                 
-                // En el último parpadeo, dejar destruido visible
+                // En el último parpadeo, forzar el estado final
                 if (count === maxFlickers) {
                     normal.setVisible(false);
                     destroyed.setVisible(true);
@@ -863,6 +939,42 @@ export default class Board extends Phaser.Scene {
 
     attackNot() {
         console.log("Ataque NOT ejecutado.");
+        // Mostrar título
+        this.textoBool = this.add.text(
+            this.scale.width * 0.81, this.scale.height * 0.51,
+            "NOT",
+            { fontFamily: 'Diogenes', fontSize: '30px', color: '#395436', padding: { x: 20, y: 10 } }
+        ).setOrigin(0.5).setInteractive();
+
+        // Mostrar solo 1 grupo de banners (al centro)
+        this.bannerScale = 0.3;
+        const banner_green = this.add.image(this.scale.width * 0.76, this.scale.height * 0.46, 'banner_green').setScale(this.bannerScale);
+        const banner_red = this.add.image(this.scale.width * 0.81, this.scale.height * 0.46, 'banner_red').setScale(this.bannerScale);
+        const banner_blue = this.add.image(this.scale.width * 0.785, this.scale.height * 0.54, 'banner_blue').setScale(this.bannerScale);
+
+        const banners = [banner_green, banner_red, banner_blue];
+        
+        // Reutilizamos setupBannerGroup pero adaptado para selección simple
+        banners.forEach(banner => {
+            banner.setInteractive({ useHandCursor: true });
+            banner.on('pointerdown', () => {
+                // Efecto visual selección
+                banners.forEach(b => b.clearTint().setAlpha(0.5));
+                banner.setTint(0xffff88).setAlpha(1);
+                
+                // Guardamos la selección en una variable temporal
+                this.selectedNotBanner = banner;
+                
+                // Limpiamos UI anterior si existe
+                if (this.botonCancel) { this.botonCancel.destroy(); this.botonAttackFinal.destroy(); }
+                
+                // Mostramos botones de confirmar
+                this.setupAttackCancelButtons("not");
+            });
+        });
+        
+        // Guardamos referencia para borrar luego
+        this.notBanners = banners;
     }
 
     moveWarrior() {
@@ -942,7 +1054,6 @@ export default class Board extends Phaser.Scene {
     }
 
     setupAttackCancelButtons(modo) {
-        // Implementación de botones de cancelar ataque
         // Creamos los botones de cancel y attack
         this.botonCancel = this.add.text(
             this.scale.width * 0.74, this.scale.height * 0.555,
@@ -956,62 +1067,515 @@ export default class Board extends Phaser.Scene {
             { fontFamily: 'Diogenes', fontSize: '27px', color: '#395436', padding: { x: 20, y: 10 } }
         ).setOrigin(0.5).setInteractive();
 
-        // Efecto hover
+        // Efecto hover para ambos botones
         [this.botonCancel, this.botonAttackFinal].forEach(boton => {
             boton.on('pointerover', () => {
                 boton.setScale(1.1);
                 boton.setText(`>${boton.text}<`);
             });
-
-            // Al salir el foco del ratón
             boton.on('pointerout', () => {
                 boton.setScale(1);
-                // Limpia el texto para quitar los '>'
                 boton.setText(boton.text.replace(/>/g, '').replace(/</g, ''));
             });
         });
 
-        // Listener de Cancel
+        // ==========================================
+        // LISTENER: CANCELAR
+        // ==========================================
         this.botonCancel.on('pointerdown', () => {
-            // Eliminar botones
+            // Eliminar botones UI
             this.botonCancel.destroy();
             this.botonAttackFinal.destroy();
 
+            // Limpieza específica según el modo
             if (modo === "bool") {
-                // Eliminar banners centrales
                 this.selectedLeft.destroy();
                 this.selectedRight.destroy();
                 this.textoBool.destroy();    
-                // Resetear selecciones
                 this.selectedLeft = null;
                 this.selectedRight = null;
-
+            } else if (modo === "not") {
+                // Si guardaste los banners en 'notBanners' en attackNot
+                if (this.notBanners) this.notBanners.forEach(b => b.destroy());
+                this.textoBool.destroy();
+                this.selectedNotBanner = null;
             } else if (modo === "generico") {
                 this.textoGenerico.destroy();
+            }
+            
+            // RESOLVEMOS CON FALSE -> Indica que NO se gastó la carta
+            if (this.resolveAttack) this.resolveAttack(false);
+        });
+
+        // ==========================================
+        // LISTENER: ATACAR (LÓGICA PRINCIPAL)
+        // ==========================================
+        this.botonAttackFinal.on('pointerdown', () => {
+            // 1. Eliminar botones UI
+            this.botonCancel.destroy();
+            this.botonAttackFinal.destroy();
+
+            // 2. Definir mapa de colores y variables
+            const colorMap = { 'banner_red': 'rojo', 'banner_green': 'verde', 'banner_blue': 'azul' };
+            let objetivos = [];
+
+            // 3. Ejecutar lógica según el modo
+            if (modo === "bool") {
+                // --- CARTAS: AND, OR, XOR ---
+                const colorL = colorMap[this.selectedLeft.texture.key];
+                const colorR = colorMap[this.selectedRight.texture.key];
+                const operacion = this.textoBool.text; // "AND", "OR", "XOR"
+
+                objetivos = this.territories.filter(t => {
+                    const tieneL = t.colores.includes(colorL);
+                    const tieneR = t.colores.includes(colorR);
+                    
+                    switch(operacion) {
+                        case 'AND': return tieneL && tieneR;
+                        case 'OR':  return tieneL || tieneR;
+                        // XOR: (Uno u otro) Y (No ambos)
+                        case 'XOR': return tieneL !== tieneR; 
+                        default: return false;
+                    }
+                });
+
+                // Limpieza visual
+                this.selectedLeft.destroy();
+                this.selectedRight.destroy();
+                this.textoBool.destroy();    
+
+            } else if (modo === "not") {
+                // --- CARTA: NOT ---
+                // Verifica que attackNot() defina this.selectedNotBanner
+                const color = colorMap[this.selectedNotBanner.texture.key];
+                
+                // Objetivo: Territorios que NO tienen ese color
+                objetivos = this.territories.filter(t => !t.colores.includes(color));
+                
+                // Limpieza visual
+                if (this.notBanners) this.notBanners.forEach(b => b.destroy());
+                this.textoBool.destroy();
+
+            } else if (modo === "generico") {
+                // --- CARTAS: COUNT, LIKE, FLARE ---
+                const valor = this.textoGenerico.text; // Ej: "1", "KLIF", "BEKSTENHOLM"
+                const cartaActual = this.cartaSeleccionada.cardKey; 
+
+                if (cartaActual === 'count') {
+                    // Ataca territorios con X colores exactos
+                    const numero = parseInt(valor, 10);
+                    objetivos = this.territories.filter(t => t.colores.length === numero);
+                
+                } else if (cartaActual === 'like') {
+                    // Ataca territorios cuyo nombre contenga el texto (ej: "KLIF")
+                    objetivos = this.territories.filter(t => t.key.toUpperCase().includes(valor));
+                
+                } else if (cartaActual === 'flare') {
+                    // Ataca al territorio exacto seleccionado
+                    objetivos = this.territories.filter(t => t.key.toUpperCase() === valor);
+                }
+
+                // Limpieza visual
+                this.textoGenerico.destroy();
+            }
+
+            // 4. Aplicar daño a los territorios calculados
+            this.danarTerritorios(objetivos);
+
+            // RESOLVEMOS CON TRUE -> Indica que SÍ se gastó la carta
+            if (this.resolveAttack) this.resolveAttack(true);
+        });
+    }
+
+
+    // ============================================================
+    // APLICAR DAÑO (Eliminar Orcos y Guerreros + Coste Flechas)
+    // ============================================================
+    danarTerritorios(territoriosObjetivo) {
+        // 1. Calcular y restar flechas
+        const coste = this.calcularCosteFlechas(territoriosObjetivo);
+        
+        // Obtener flechas actuales del texto
+        let flechasActuales = parseInt(this.botonflechasRestantes.text.replace('x', ''), 10);
+        
+        // Actualizar UI (evitando negativos si quieres)
+        flechasActuales = Math.max(0, flechasActuales - coste);
+        this.botonflechasRestantes.setText('x' + flechasActuales);
+        
+        console.log(`Ataque a ${territoriosObjetivo.length} territorios. Coste: ${coste} flechas.`);
+
+        // 2. Aplicar daño a las unidades
+        let alMenosUnAcierto = false;
+
+        territoriosObjetivo.forEach(territorio => {
+            let impacto = false;
+
+            // --- GESTIÓN DE ORCOS ---
+            const orcos = territorio.list.filter(child => child.tipo === 'orco');
+            if (orcos.length > 0) {
+                const orcoEliminado = orcos[orcos.length - 1]; // Quitar el último añadido
+                orcoEliminado.destroy();
+                impacto = true;
+                alMenosUnAcierto = true;
+
+                // [NUEVO] Refrescar visualización tras eliminar
+                // Pequeño delay para que Phaser procese el destroy
+                this.time.delayedCall(50, () => {
+                    this.apilarFichasEnCentro(territorio, 'orco');
+                });
+            }
+
+            // --- GESTIÓN DE GUERREROS ---
+            // Nota: Se eliminan TAMBIÉN si hay guerreros (fuego amigo)
+            const guerreros = territorio.list.filter(child => child.tipo === 'guerrero');
+            if (guerreros.length > 0) {
+                const guerreroEliminado = guerreros[guerreros.length - 1];
+                guerreroEliminado.destroy();
+                impacto = true;
+                console.log(`¡Fuego amigo en ${territorio.key}! Guerrero eliminado.`);
+
+                // [NUEVO] Refrescar visualización tras eliminar
+                this.time.delayedCall(50, () => {
+                    this.apilarFichasEnCentro(territorio, 'guerrero');
+                });
+            }
+
+            // --- FEEDBACK VISUAL ---
+            if (impacto) {
+                // Parpadeo rojo si golpeamos algo (orco o guerrero)
+                this.tweens.add({
+                    targets: territorio.list[0],
+                    tint: 0xff0000,
+                    duration: 100,
+                    yoyo: true,
+                    onComplete: () => { territorio.list[0].clearTint(); }
+                });
+            } else {
+                // Parpadeo gris/transparente si fue un fallo (territorio vacío)
+                this.tweens.add({
+                    targets: territorio.list[0],
+                    alpha: 0.5,
+                    duration: 100,
+                    yoyo: true
+                });
             }
         });
 
-        // Listener de Attack
-        this.botonAttackFinal.on('pointerdown', () => {
-            // Eliminar botones
-            this.botonCancel.destroy();
-            this.botonAttackFinal.destroy();
+        if (alMenosUnAcierto) {
+            console.log("El ataque tuvo efecto en el enemigo.");
+        }
+    }
 
-            if (modo === "bool") {
-                // Eliminar banners centrales
-                this.selectedLeft.destroy();
-                this.selectedRight.destroy();
-                this.textoBool.destroy();    
-                // Resetear selecciones
-                this.selectedLeft = null;
-                this.selectedRight = null;
-                console.log("Ataque final ejecutado con banners seleccionados:", this.selectedLeft.texture.key, this.selectedRight.texture.key);
+    // ============================================================
+    // CALCULAR COSTE DE FLECHAS
+    // ============================================================
+    calcularCosteFlechas(territorios) {
+        let costeTotal = 0;
 
-            } else if (modo === "generico") {
-                this.textoGenerico.destroy();
+        territorios.forEach(t => {
+            const tieneOrcos = t.list.some(child => child.tipo === 'orco');
+            const tieneGuerreros = t.list.some(child => child.tipo === 'guerrero');
+
+            if (tieneOrcos && tieneGuerreros) {
+                costeTotal += 4; // Fuego cruzado (el peor caso)
+            } else if (tieneGuerreros) {
+                costeTotal += 3; // Fuego amigo
+            } else if (tieneOrcos) {
+                costeTotal += 1; // Tiro limpio (el mejor caso)
+            } else {
+                costeTotal += 2; // Disparo al aire (fallo)
+            }
+        });
+
+        return costeTotal;
+    }
+
+    // ============================================================
+    // APILAR FICHAS (Visualización > 3 unidades)
+    // ============================================================
+    apilarFichasEnCentro(territorio, tipo) {
+        // Filtramos las unidades de ese tipo (orco o guerrero)
+        const unidades = territorio.list.filter(child => child.tipo === tipo);
+        const cantidad = unidades.length;
+
+        // Si hay menos de 4, usamos la distribución normal (lineal) y borramos contadores si existen
+        if (cantidad < 4) {
+            this.distribuirFichasLinealmente(territorio, tipo);
+            // Buscar y borrar texto de contador antiguo si existe
+            const contadorAntiguo = territorio.list.find(c => c.name === `contador_${tipo}`);
+            if (contadorAntiguo) contadorAntiguo.destroy();
+            return;
+        }
+
+        // === MODO APILADO (4 o más) ===
+        
+        // 1. Ocultar todas las unidades visuales primero
+        unidades.forEach(u => u.setVisible(false));
+
+        // 2. Tomar las 3 primeras para hacer el "stack" visual
+        const stackVisual = [unidades[0], unidades[1], unidades[2]];
+        
+        // Ajustes de posición para el apilamiento (centro ligeramente desplazado)
+        // El centro es 0. Desplazamiento sutil para ver las fichas de atrás
+        const offsets = [-10, 0, 10]; 
+        
+        // Dependiendo del territorio, la Y base cambia (como ya tenías)
+        const nombreArriba = ['klifdalholm', 'beknesvik', 'aenesholm', 'bekdalsand'];
+        const esArriba = nombreArriba.includes(territorio.key);
+        // Si es guerrero y es territorio de arriba, y = 55. Si es orco, y = -5, etc.
+        // Simplificamos usando la Y que ya tenían o calculándola de nuevo:
+        let yBase = 0;
+        if (tipo === 'guerrero') yBase = esArriba ? 55 : -55;
+        else yBase = (['klifstenvik', 'bekstenholm', 'aestensand'].includes(territorio.key)) ? -5 : 0;
+
+        stackVisual.forEach((ficha, i) => {
+            ficha.setVisible(true);
+            ficha.setDepth(i); // Asegurar que la última tape a la anterior
+            
+            // Animación de deslizamiento hacia el centro apilado
+            this.tweens.add({
+                targets: ficha,
+                x: offsets[i],
+                y: yBase,
+                duration: 400,
+                ease: 'Power2'
+            });
+        });
+
+        // 3. Crear o Actualizar el Contador de Texto
+        let contador = territorio.list.find(c => c.name === `contador_${tipo}`);
+        
+        // Posición del texto (esquina superior derecha relativa al stack)
+        const textX = 35; 
+        const textY = yBase - 20;
+
+        if (!contador) {
+            contador = this.add.text(textX, textY, `x${cantidad}`, {
+                fontFamily: 'Diogenes',
+                fontSize: '24px',
+                color: (tipo === 'orco') ? '#ffffff' : '#000000',
+                stroke: '#000000',
+                strokeThickness: (tipo === 'orco') ? 2 : 0
+            }).setOrigin(0, 0.5);
+            contador.name = `contador_${tipo}`;
+            territorio.add(contador);
+        } else {
+            contador.setText(`x${cantidad}`);
+            // Traer al frente
+            territorio.bringToTop(contador);
+        }
+    }
+
+    // Función auxiliar para restaurar la vista normal (1, 2 o 3 fichas separadas)
+    distribuirFichasLinealmente(territorio, tipo) {
+        const unidades = territorio.list.filter(child => child.tipo === tipo);
+        const cantidad = unidades.length;
+        if (cantidad === 0) return;
+
+        // Posiciones según cantidad: 
+        // 1 ficha: [0]
+        // 2 fichas: [-25, 25] (aprox)
+        // 3 fichas: [-50, 0, 50]
+        let posicionesX = [];
+        if (cantidad === 1) posicionesX = [0];
+        else if (cantidad === 2) posicionesX = [-30, 30];
+        else posicionesX = [-52, 0, 52];
+
+        const nombreArriba = ['klifdalholm', 'beknesvik', 'aenesholm', 'bekdalsand'];
+        const esArriba = nombreArriba.includes(territorio.key);
+        let yBase = 0;
+        if (tipo === 'guerrero') yBase = esArriba ? 55 : -55;
+        else yBase = (['klifstenvik', 'bekstenholm', 'aestensand'].includes(territorio.key)) ? -5 : 0;
+
+        unidades.forEach((ficha, i) => {
+            ficha.setVisible(true);
+            this.tweens.add({
+                targets: ficha,
+                x: posicionesX[i],
+                y: yBase,
+                duration: 300,
+                ease: 'Power2'
+            });
+        });
+    }
+
+    // ============================================================
+    // RESOLVER COMBATE (Actualizado con Efecto Visual)
+    // ============================================================
+    resolverCombate() {
+        console.log("--- Resolviendo combate cuerpo a cuerpo ---");
+
+        this.territories.forEach(territorio => {
+            let orcos = territorio.list.filter(c => c.tipo === 'orco');
+            let guerreros = territorio.list.filter(c => c.tipo === 'guerrero');
+            let numOrcos = orcos.length;
+            let numGuerreros = guerreros.length;
+
+            if (numOrcos === 0 || numGuerreros === 0) return;
+
+            // 1. EFECTO VISUAL: Parpadeo ROJO indicando batalla
+            // Tintamos la imagen del territorio (index 0)
+            this.tweens.add({
+                targets: territorio.list[0],
+                tint: 0xff0000,
+                duration: 150,
+                yoyo: true,
+                repeat: 1 // Parpadeara 2 veces
+            });
+
+            // 2. CÁLCULO DE BAJAS
+            const paresDeGuerreros = Math.floor(numGuerreros / 2);
+            const orcosA_Eliminar = Math.min(paresDeGuerreros, numOrcos);
+            const guerrerosA_Sacrificar = orcosA_Eliminar * 2;
+            
+            // Verificamos si sobra guerrero solitario
+            let guerreroSolitarioMuere = false;
+            let orcosRestantes = numOrcos - orcosA_Eliminar;
+            let guerrerosRestantes = numGuerreros - guerrerosA_Sacrificar;
+            
+            if (orcosRestantes > 0 && guerrerosRestantes > 0) {
+                guerreroSolitarioMuere = true;
             }
 
-            if (this.resolveAttack) this.resolveAttack();
+            // 3. APLICAR BAJAS (Con retraso para ver el parpadeo)
+            this.time.delayedCall(400, () => {
+                // Eliminar Orcos
+                for (let i = 0; i < orcosA_Eliminar; i++) {
+                    const o = orcos.pop(); 
+                    if(o) o.destroy();
+                }
+                // Eliminar Guerreros Sacrificados
+                for (let i = 0; i < guerrerosA_Sacrificar; i++) {
+                    const g = guerreros.pop();
+                    if(g) g.destroy();
+                }
+                // Eliminar Guerrero Solitario (si aplica)
+                if (guerreroSolitarioMuere) {
+                    const g = guerreros.pop();
+                    if(g) g.destroy();
+                }
+
+                // 4. REORGANIZAR VISTA
+                this.apilarFichasEnCentro(territorio, 'orco');
+                this.apilarFichasEnCentro(territorio, 'guerrero');
+            });
+        });
+    }
+
+    moveWarrior() {
+        return new Promise((resolve) => {
+            console.log("Iniciando movimiento de guerrero...");
+            
+            // 1. Crear Botón de Cancelar
+            const btnCancel = this.add.text(
+                this.scale.width * 0.5, this.scale.height * 0.55, 'Cancel',
+                { fontFamily: 'Diogenes', fontSize: '27px', color: '#395436', backgroundColor: '#000000' }
+            ).setOrigin(0.5).setInteractive().setDepth(100); // Depth alto para estar encima de todo
+
+            // 2. Crear Texto de Instrucciones
+            const instrucciones = this.add.text(
+                this.scale.width * 0.5, this.scale.height * 0.5,
+                'Click on the origin territory\nof the warrior',
+                { fontFamily: 'Diogenes', fontSize: '30px', color: '#395436', align: 'center' }
+            ).setOrigin(0.5).setDepth(100);
+
+            // Variables de estado local para esta función
+            let fase = 'origen'; // 'origen' o 'destino'
+            let territorioOrigen = null;
+
+            // Función de limpieza (Resetear tablero y UI)
+            const limpiarUI = () => {
+                btnCancel.destroy();
+                instrucciones.destroy();
+                this.territories.forEach(t => {
+                    t.clearTint();
+                    t.setAlpha(1);
+                    t.off('pointerdown'); // Importante: quitar listeners temporales
+                });
+            };
+
+            // === LISTENER CANCELAR ===
+            btnCancel.on('pointerdown', () => {
+                limpiarUI();
+                resolve(false); // Retorna false (no gastar carta)
+            });
+
+            // === CONFIGURAR TERRITORIOS ===
+            this.territories.forEach(territorio => {
+                territorio.setInteractive();
+
+                territorio.on('pointerdown', () => {
+                    // --- FASE 1: SELECCIONAR ORIGEN ---
+                    if (fase === 'origen') {
+                        const guerreros = territorio.list.filter(c => c.tipo === 'guerrero');
+                        
+                        // Solo válido si tiene guerreros
+                        if (guerreros.length > 0) {
+                            territorioOrigen = territorio;
+                            fase = 'destino';
+                            
+                            // Feedback Visual
+                            territorio.setTint(0x00ff00); // Verde para el origen
+                            instrucciones.setText('Click on the destination territory\nof the warrior');
+                            
+                            // Obtener vecinos válidos
+                            const vecinos = this.adyacencias[territorio.key];
+
+                            // Oscurecer los NO adyacentes y el propio origen
+                            this.territories.forEach(t => {
+                                if (!vecinos.includes(t.key)) {
+                                    t.setAlpha(0.5); // Apagar los no válidos
+                                }
+                            });
+                        } else {
+                            // Feedback de error (opcional): Shake o sonido
+                            console.log("Este territorio no tiene guerreros.");
+                        }
+                    } 
+                    // --- FASE 2: SELECCIONAR DESTINO ---
+                    else if (fase === 'destino') {
+                        // Verificar si es vecino válido
+                        const esVecino = this.adyacencias[territorioOrigen.key].includes(territorio.key);
+                        
+                        if (esVecino) {
+                            // === EJECUTAR MOVIMIENTO ===
+                            
+                            // 1. Quitar del Origen
+                            const listaGuerreros = territorioOrigen.list.filter(c => c.tipo === 'guerrero');
+                            const guerreroA_Mover = listaGuerreros[listaGuerreros.length - 1]; // El último
+                            guerreroA_Mover.destroy();
+                            
+                            // 2. Poner en Destino
+                            // Usamos colocarGuerrero pero "manualmente" para evitar logs extra o restricciones
+                            // Simplemente añadimos la imagen y actualizamos el stack
+                            // Calculamos Y base (depende si es territorio de arriba o abajo)
+                            const nombreArriba = ['klifdalholm', 'beknesvik', 'aenesholm', 'bekdalsand'];
+                            const yBase = nombreArriba.includes(territorio.key) ? 55 : -55;
+                            
+                            const nuevoGuerrero = this.add.image(0, yBase, 'guerrero').setScale(0.47);
+                            nuevoGuerrero.tipo = 'guerrero';
+                            territorio.add(nuevoGuerrero);
+
+                            // 3. Actualizar Pilas Visuales (Stacking)
+                            this.apilarFichasEnCentro(territorioOrigen, 'guerrero'); // Refrescar origen
+                            this.apilarFichasEnCentro(territorio, 'guerrero');       // Refrescar destino
+
+                            // 4. Feedback Visual Final (Parpadeo Destino)
+                            this.tweens.add({
+                                targets: territorio.list[0], // Imagen de fondo del territorio
+                                alpha: 0.2,
+                                yoyo: true,
+                                duration: 150,
+                                repeat: 2
+                            });
+
+                            // 5. Finalizar
+                            limpiarUI();
+                            resolve(true); // Retorna true (gastar carta)
+                        }
+                    }
+                });
+            });
         });
     }
 
