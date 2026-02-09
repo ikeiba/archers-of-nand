@@ -48,6 +48,7 @@ export default class Board extends Phaser.Scene {
         this.load.image('quiver', 'assets/others/quiver.png');
         this.load.image('guerrero', 'assets/others/warrior.png');
         this.load.image('orco', 'assets/others/orc.png');
+        this.load.image('arrow', 'assets/others/single_arrow.png');
 
         // --- MONEDAS ---
         this.load.image('coin_empty', 'assets/coins/blank.png');
@@ -111,12 +112,44 @@ export default class Board extends Phaser.Scene {
 
         // --- TERRITORIOS ---
         this.territories = this.crearTerritorios(centerX, centerY, w, h, territory_scale);
-
+        
+        // [IMPORTANTE] Inicializamos la bandera AQUÍ, antes de usarla
+        this.isMovingWarrior = false;
+        
         // --- LISTENERS DE TERRITORIOS ---
         this.territories.forEach(t => {
-            t.setSize(w * territory_scale, h * territory_scale);
-            t.setInteractive();
+            // 1. OBTENER TAMAÑO REAL VISUAL
+            // Accedemos a la imagen dentro del contenedor (índice 0)
+            const imagen = t.list[0];
+            
+            // El tamaño visual es el tamaño de la textura multiplicado por su escala (0.45)
+            const anchoReal = imagen.width * imagen.scaleX;
+            const altoReal = imagen.height * imagen.scaleY;
+            
+            // Ajustamos el contenedor a este tamaño real
+            t.setSize(anchoReal, altoReal);
+
+            // 2. DEFINIR HITBOX HEXAGONAL EXACTA
+            // Usamos las dimensiones reales de la imagen para calcular los puntos
+            const hexagono = new Phaser.Geom.Polygon([
+                0, altoReal / 2,                // Centro Izquierda
+                anchoReal * 0.25, 0,            // Arriba Izquierda
+                anchoReal * 0.75, 0,            // Arriba Derecha
+                anchoReal, altoReal / 2,        // Centro Derecha
+                anchoReal * 0.75, altoReal,     // Abajo Derecha
+                anchoReal * 0.25, altoReal      // Abajo Izquierda
+            ]);
+
+            // Aplicamos la hitbox
+            t.setInteractive(hexagono, Phaser.Geom.Polygon.Contains);
+
+            // [DEBUG] Descomenta esto si quieres ver la línea verde rodeando el territorio
+            // this.input.enableDebug(t);
+
             t.on('pointerdown', () => {
+                // Protección: Si estamos moviendo guerrero, ignoramos este clic básico
+                if (this.isMovingWarrior) return; 
+
                 if (this.estadoActual === this.estados.COLOCAR_GUERRERO) {
                     this.colocarGuerrero(t);
                     this.cambiarEstado(this.estados.TIRAR_MONEDAS);
@@ -138,6 +171,9 @@ export default class Board extends Phaser.Scene {
 
         // --- QUIVER ---
         this.quiver = this.add.image(this.scale.width * 0.12, this.scale.height * 0.5, 'quiver').setScale(archer_orc_card_scale);
+
+        // --- ARROW ---
+        this.arrow = this.add.image(this.scale.width * 0.88, this.scale.height * 0.45, 'arrow').setScale(0.38).setVisible(false);
 
         // --- TEXTOS/BOTONES UI ---
         this.botonPosicionarGuerrero = this.add.text(
@@ -245,6 +281,7 @@ export default class Board extends Phaser.Scene {
 
         // --- SISTEMA DE HORDAS ---
         this.maxHordas = 10;
+        this.hordasJugadas = 0; // [NUEVO] Contador interno de rondas
         this.hordeCards = [this.horde3, this.horde4, this.horde5];
         
         // Ocultar todas y mostrar una aleatoria
@@ -375,6 +412,9 @@ export default class Board extends Phaser.Scene {
         this.botonMoveWarrior.on('pointerdown', async () => {
             if (!this.cartaSeleccionada || this.cartasUsadas >= 2) return;
             
+            // [NUEVO] Cambiamos estado para BLOQUEAR la selección de otras cartas
+            this.cambiarEstado(this.estados.EJECUTAR_ACCION);
+
             this.botonesJuego.forEach(b => b.setVisible(false));
             
             // Llamamos a la función asíncrona y esperamos respuesta (true/false)
@@ -389,6 +429,9 @@ export default class Board extends Phaser.Scene {
                 
                 if (this.cartasUsadas === 2) {
                     this.cambiarEstado(this.estados.MELEE_FIGHT);
+                } else {
+                    // [NUEVO] Si queda otra carta, volvemos al estado de selección
+                    this.cambiarEstado(this.estados.SELECCIONAR_CARTA);
                 }
             } else {
                 console.log('Movimiento cancelado.');
@@ -397,6 +440,7 @@ export default class Board extends Phaser.Scene {
                 this.cartaSeleccionada = null;
                 this.attackCards.forEach(c => c.setInteractive());
                 this.logoIngles.setVisible(true);
+                // Volvemos al estado de selección
                 this.cambiarEstado(this.estados.SELECCIONAR_CARTA);
             }
         });
@@ -405,6 +449,9 @@ export default class Board extends Phaser.Scene {
         this.botonAttack.on('pointerdown', async () => {
             if (!this.cartaSeleccionada || this.cartasUsadas >= 2) return;
             
+            // [NUEVO] Cambiamos estado para BLOQUEAR la selección de otras cartas
+            this.cambiarEstado(this.estados.EJECUTAR_ACCION);
+
             this.botonesJuego.forEach(b => b.setVisible(false));
             
             // Esperamos a que el jugador decida (Atacar o Cancelar)
@@ -419,15 +466,18 @@ export default class Board extends Phaser.Scene {
                 
                 if (this.cartasUsadas === 2) {
                     this.cambiarEstado(this.estados.MELEE_FIGHT);
+                } else {
+                    // [NUEVO] Si queda otra carta, volvemos al estado de selección
+                    this.cambiarEstado(this.estados.SELECCIONAR_CARTA);
                 }
             } else {
                 console.log('Ataque cancelado. Volviendo a selección.');
                 // Canceló: Restauramos el estado visual
                 this.cartaSeleccionada.selected = false;
                 this.cartaSeleccionada.clearTint();
-                this.cartaSeleccionada = null; // Limpiamos la selección
-                this.attackCards.forEach(c => c.setInteractive()); // Reactivamos interactividad
-                this.logoIngles.setVisible(true); // Restaurar logo si hace falta
+                this.cartaSeleccionada = null; 
+                this.attackCards.forEach(c => c.setInteractive()); 
+                this.logoIngles.setVisible(true); 
                 
                 // Volvemos explícitamente al estado de seleccionar
                 this.cambiarEstado(this.estados.SELECCIONAR_CARTA);
@@ -446,11 +496,22 @@ export default class Board extends Phaser.Scene {
         switch(nuevoEstado) {
             case this.estados.COLOCAR_GUERRERO:
                 this.botonPosicionarGuerrero.setVisible(true);
-                this.coins.forEach(coin => coin.setVisible(false));
+                // this.coins.forEach(coin => coin.setVisible(false));
                 this.logoIngles.setVisible(false);
                 this.botonesJuego.forEach(b => b.setVisible(false));
                 this.botonFight.setVisible(false);
                 this.textoMelee.setVisible(false);
+                // --- [NUEVO] RESETEAR MONEDAS PARA LA NUEVA RONDA ---
+                this.coins.forEach(coin => {
+                    coin.setVisible(false); // Se ocultan
+                    
+                    // 1. Volver a la posición original (apiladas/superpuestas)
+                    // Usamos las variables initialX/Y que guardamos en el create
+                    coin.setPosition(coin.initialX, coin.initialY);
+                    
+                    // 2. Resetear la imagen a vacía (sin color)
+                    coin.setTexture('coin_empty');
+                });
                 break;
                 
             case this.estados.TIRAR_MONEDAS:
@@ -471,6 +532,8 @@ export default class Board extends Phaser.Scene {
                 this.botonesJuego.forEach(b => b.setVisible(false));
                 this.botonFight.setVisible(true);
                 this.textoMelee.setVisible(true);
+                // [NUEVO] Asegurar que el logo se oculta al entrar en combate
+                this.logoIngles.setVisible(false);
                 break;
         }
     }
@@ -528,7 +591,7 @@ export default class Board extends Phaser.Scene {
         if (this.estadoActual !== this.estados.TIRAR_MONEDAS) return;
 
         const nombreAbajo = ['klifstenvik', 'bekstenholm', 'aestensand'];
-        const yBase = nombreAbajo.includes(territorio.key) ? -5 : 0;
+        const yBase = nombreAbajo.includes(territorio.key) ? -5 : 5;
 
         // Añadir ficha nueva
         const ficha = this.add.image(0, yBase, 'orco').setScale(0.42);
@@ -664,7 +727,35 @@ export default class Board extends Phaser.Scene {
     // ============================================================
     // REALIZAR RONDA
     // ============================================================
+    // ============================================================
+    // REALIZAR RONDA (Comprobación de Final de Partida)
+    // ============================================================
     realizarRonda() {
+        // 1. Aumentamos el contador de rondas jugadas
+        this.hordasJugadas++;
+
+        // 2. CHECK DE DERROTA: ¿4 o más territorios destruidos?
+        const territoriosDestruidos = this.territories.filter(t => t.destruido).length;
+        if (territoriosDestruidos >= 4) {
+            console.log("GAME OVER: Demasiados territorios destruidos.");
+            this.scene.start('End', { win: false });
+            return; // Importante: salir de la función para no seguir jugando
+        }
+
+        // 3. CHECK DE VICTORIA: ¿Se acabaron las cartas de horda?
+        // Si hemos jugado las 10 rondas (o las que sean maxHordas) y seguimos vivos
+        if (this.hordasJugadas >= this.maxHordas) {
+            console.log("VICTORY: Has sobrevivido a todas las hordas.");
+            const puntuacion = this.calcularPuntuacionFinal();
+            this.scene.start('End', { 
+                win: true, 
+                score: puntuacion.total,
+                details: puntuacion.desglose // Para mostrar detalles si quieres
+            });
+            return;
+        }
+
+        // 4. Si no ha terminado, continuamos la partida
         this.cambiarCartaHorda();
     }
 
@@ -908,77 +999,120 @@ export default class Board extends Phaser.Scene {
     }
 
     attackFlare() {
+        console.log("Ataque FLARE iniciado.");
+
         this.textoFlare = this.add.text(
             this.scale.width * 0.82, this.scale.height * 0.5,
             "Click on a territory to\nshoot the arrows.",
             { fontFamily: 'Diogenes', fontSize: '30px', color: '#395436', padding: { x: 20, y: 10 } }
         ).setOrigin(0.5);
 
-        // Hacer clicables los territorios
+        // === 1. DEFINIR FUNCIÓN DE LIMPIEZA ===
+        // Esta función busca los listeners guardados y los elimina
+        this.cleanupFlare = () => {
+            console.log("Limpiando eventos FLARE...");
+            this.territories.forEach(t => {
+                t.list[0].clearTint(); // Limpiar tinte visual
+                
+                // Si existen listeners de Flare guardados, los borramos
+                if (t._flareListeners) {
+                    t.off('pointerover', t._flareListeners.over);
+                    t.off('pointerout', t._flareListeners.out);
+                    t.off('pointerdown', t._flareListeners.down);
+                    
+                    // Borramos la referencia para dejar el objeto limpio
+                    t._flareListeners = null;
+                }
+            });
+            // Anulamos la función global para que no se pueda llamar dos veces
+            this.cleanupFlare = null;
+        };
+
+        // === 2. CONFIGURAR TERRITORIOS ===
         this.territories.forEach(territory => {
             territory.setInteractive({ useHandCursor: true });
 
-            territory.on('pointerover', () => {
-                territory.setTint(0xffff88);
-            });
+            // Definimos las funciones específicas para este territorio
+            const flareOver = () => territory.list[0].setTint(0xffff88);
+            const flareOut = () => territory.list[0].clearTint();
+            
+            const flareDown = () => {
+                // A. Limpieza de UI previa (botones/textos viejos si cambias de objetivo)
+                if (this.textoFlare && this.textoFlare.active) this.textoFlare.destroy();
+                if (this.textoGenerico) this.textoGenerico.destroy();
+                if (this.botonCancel) this.botonCancel.destroy();
+                if (this.botonAttackFinal) this.botonAttackFinal.destroy();
+                if (this.botonFlechasGasto) this.botonFlechasGasto.destroy();
+                if (this.arrow) this.arrow.setVisible(false);
 
-            territory.on('pointerout', () => {
-                territory.clearTint();
-            });
-
-            territory.on('pointerdown', () => {
-                // Eliminar el texto de instrucciones
-                this.textoFlare.destroy();
-                // Llamar a la vista de ataque con el nombre del territorio
+                // B. Generar la nueva vista para el territorio seleccionado
+                console.log(`Seleccionado FLARE: ${territory.key}`);
                 this.setupAttackViewGeneric(territory.key);
-            });
-        });
+            };
 
-        console.log("Ataque FLARE ejecutado.");
+            // C. GUARDAR REFERENCIAS (La clave del éxito)
+            // Las guardamos en el objeto territorio para poder acceder a ellas desde cleanupFlare
+            territory._flareListeners = { 
+                over: flareOver, 
+                out: flareOut, 
+                down: flareDown 
+            };
+
+            // D. Activar listeners
+            territory.on('pointerover', flareOver);
+            territory.on('pointerout', flareOut);
+            territory.on('pointerdown', flareDown);
+        });
     }
 
     attackNot() {
         console.log("Ataque NOT ejecutado.");
-        // Mostrar título
-        this.textoBool = this.add.text(
-            this.scale.width * 0.81, this.scale.height * 0.51,
-            "NOT",
-            { fontFamily: 'Diogenes', fontSize: '30px', color: '#395436', padding: { x: 20, y: 10 } }
-        ).setOrigin(0.5).setInteractive();
 
         // Mostrar solo 1 grupo de banners (al centro)
-        this.bannerScale = 0.3;
-        const banner_green = this.add.image(this.scale.width * 0.76, this.scale.height * 0.46, 'banner_green').setScale(this.bannerScale);
-        const banner_red = this.add.image(this.scale.width * 0.81, this.scale.height * 0.46, 'banner_red').setScale(this.bannerScale);
-        const banner_blue = this.add.image(this.scale.width * 0.785, this.scale.height * 0.54, 'banner_blue').setScale(this.bannerScale);
+        this.bannerScale = 0.45;
+        const banner_green = this.add.image(this.scale.width * 0.735, this.scale.height * 0.50, 'banner_green').setScale(this.bannerScale);
+        const banner_red = this.add.image(this.scale.width * 0.815, this.scale.height * 0.50, 'banner_red').setScale(this.bannerScale);
+        const banner_blue = this.add.image(this.scale.width * 0.895, this.scale.height * 0.50, 'banner_blue').setScale(this.bannerScale);
 
         const banners = [banner_green, banner_red, banner_blue];
         
         // Reutilizamos setupBannerGroup pero adaptado para selección simple
         banners.forEach(banner => {
             banner.setInteractive({ useHandCursor: true });
+            
             banner.on('pointerdown', () => {
-                // Efecto visual selección
-                banners.forEach(b => b.clearTint().setAlpha(0.5));
-                banner.setTint(0xffff88).setAlpha(1);
+                // 1. Ocultar TODOS los banners primero
+                banner_green.setVisible(false);
+                banner_red.setVisible(false);
+                banner_blue.setVisible(false);
                 
-                // Guardamos la selección en una variable temporal
+                // 2. Guardar la selección
                 this.selectedNotBanner = banner;
+
+                // 3. Configurar el banner SELECCIONADO
+                this.selectedNotBanner.setVisible(true);
+
+                // --- CORRECCIÓN CLAVE ---
+                // Usamos setPosition para MOVERLO (no setScale)
+                // Lo ponemos en la posición central (0.815) para que quede centrado sea cual sea el color
+                this.selectedNotBanner.setPosition(this.scale.width * 0.737, this.scale.height * 0.477);
                 
-                // Limpiamos UI anterior si existe
-                if (this.botonCancel) { this.botonCancel.destroy(); this.botonAttackFinal.destroy(); }
+                // Ajustamos el tamaño final deseado
+                this.selectedNotBanner.setScale(0.32);
+
+                // 4. Mostrar botones de confirmar
+                // Si ya existían botones de una selección previa, los borramos para no duplicar
+                if (this.botonCancel) { 
+                    this.botonCancel.destroy(); 
+                    this.botonAttackFinal.destroy(); 
+                }
                 
-                // Mostramos botones de confirmar
                 this.setupAttackCancelButtons("not");
             });
         });
         
         // Guardamos referencia para borrar luego
         this.notBanners = banners;
-    }
-
-    moveWarrior() {
-        console.log("Mover guerrero seleccionado.");
     }
 
 
@@ -1015,7 +1149,7 @@ export default class Board extends Phaser.Scene {
         // Cambiamos las coordenadas del texto
         this.textoBool.setPosition(this.scale.width * 0.745, this.scale.height * 0.49);
         // Creamos una copia de los estandartes seleccionados en el centro
-        this.selectedLeft = this.add.image(this.scale.width * 0.68, this.scale.height * 0.49, this.selectedLeft.texture.key).setScale(this.bannerScale);
+        this.selectedLeft = this.add.image(this.scale.width * 0.695, this.scale.height * 0.49, this.selectedLeft.texture.key).setScale(this.bannerScale);
         this.selectedRight = this.add.image(this.scale.width * 0.795, this.scale.height * 0.49, this.selectedRight.texture.key).setScale(this.bannerScale);
 
         this.setupAttackCancelButtons("bool");
@@ -1054,136 +1188,154 @@ export default class Board extends Phaser.Scene {
     }
 
     setupAttackCancelButtons(modo) {
-        // Creamos los botones de cancel y attack
+        // 1. CALCULAR OBJETIVOS Y COSTE
+        const objetivos = this.obtenerObjetivosActuales(modo);
+        const costePrevisto = this.calcularCosteFlechas(objetivos);
+        
+        // 2. OBTENER FLECHAS ACTUALES (Antes de cambiar el texto)
+        const textoOriginal = this.botonflechasRestantes.text;
+        const flechasActuales = parseInt(textoOriginal.replace('x', ''), 10);
+        
+        // 3. ACTUALIZAR PREVIEW EN UI
+        // Añadimos la imagen de la flecha y las flechas que gastariamos
+        this.botonFlechasGasto = this.add.text(
+            this.scale.width * 0.855, this.scale.height * 0.485,
+            `x${costePrevisto}`,
+            { fontFamily: 'Diogenes', fontSize: '27px', color: '#395436', padding: { x: 20, y: 10 } }
+        ).setOrigin(0.5).setInteractive();
+
+        this.arrow.setVisible(true);
+
+        // Actualizamos el contador principal con la resta en rojo
+        this.botonflechasRestantes.setText(`${textoOriginal}`);
+
+        // 4. CREAR BOTÓN CANCELAR (Siempre aparece)
         this.botonCancel = this.add.text(
             this.scale.width * 0.74, this.scale.height * 0.555,
             'Cancel',
             { fontFamily: 'Diogenes', fontSize: '27px', color: '#395436', padding: { x: 20, y: 10 } }
         ).setOrigin(0.5).setInteractive();
 
-        this.botonAttackFinal = this.add.text(
-            this.scale.width * 0.88, this.scale.height * 0.555,
-            'Attack',
-            { fontFamily: 'Diogenes', fontSize: '27px', color: '#395436', padding: { x: 20, y: 10 } }
-        ).setOrigin(0.5).setInteractive();
-
-        // Efecto hover para ambos botones
-        [this.botonCancel, this.botonAttackFinal].forEach(boton => {
-            boton.on('pointerover', () => {
-                boton.setScale(1.1);
-                boton.setText(`>${boton.text}<`);
-            });
-            boton.on('pointerout', () => {
-                boton.setScale(1);
-                boton.setText(boton.text.replace(/>/g, '').replace(/</g, ''));
-            });
+        // Efecto hover para Cancelar
+        this.botonCancel.on('pointerover', () => {
+            this.botonCancel.setScale(1.1);
+            this.botonCancel.setText(`>${this.botonCancel.text}<`);
+        });
+        this.botonCancel.on('pointerout', () => {
+            this.botonCancel.setScale(1);
+            this.botonCancel.setText(this.botonCancel.text.replace(/>/g, '').replace(/</g, ''));
         });
 
-        // ==========================================
-        // LISTENER: CANCELAR
-        // ==========================================
-        this.botonCancel.on('pointerdown', () => {
-            // Eliminar botones UI
-            this.botonCancel.destroy();
-            this.botonAttackFinal.destroy();
-
-            // Limpieza específica según el modo
-            if (modo === "bool") {
-                this.selectedLeft.destroy();
-                this.selectedRight.destroy();
-                this.textoBool.destroy();    
-                this.selectedLeft = null;
-                this.selectedRight = null;
-            } else if (modo === "not") {
-                // Si guardaste los banners en 'notBanners' en attackNot
-                if (this.notBanners) this.notBanners.forEach(b => b.destroy());
-                this.textoBool.destroy();
-                this.selectedNotBanner = null;
-            } else if (modo === "generico") {
-                this.textoGenerico.destroy();
-            }
+        // ============================================================
+        // 5. LÓGICA CONDICIONAL: ¿PUEDO PAGAR EL ATAQUE?
+        // ============================================================
+        
+        if (costePrevisto > flechasActuales) {
+            // --- CASO A: NO HAY SUFICIENTES FLECHAS ---
+            // Creamos un texto rojo de advertencia NO INTERACTIVO (no se puede clicar)
+            this.botonAttackFinal = this.add.text(
+                this.scale.width * 0.88, this.scale.height * 0.555,
+                'NO ARROWS LEFT', 
+                { 
+                    fontFamily: 'Diogenes', 
+                    fontSize: '20px', 
+                    color: '#ff0000', 
+                    align: 'center',
+                    padding: { x: 5, y: 5 } 
+                }
+            ).setOrigin(0.5);
             
-            // RESOLVEMOS CON FALSE -> Indica que NO se gastó la carta
-            if (this.resolveAttack) this.resolveAttack(false);
-        });
+            // NOTA: No añadimos listener de 'pointerdown' a botonAttackFinal, 
+            // así que el jugador está obligado a pulsar Cancelar.
 
-        // ==========================================
-        // LISTENER: ATACAR (LÓGICA PRINCIPAL)
-        // ==========================================
-        this.botonAttackFinal.on('pointerdown', () => {
-            // 1. Eliminar botones UI
-            this.botonCancel.destroy();
-            this.botonAttackFinal.destroy();
+        } else {
+            // --- CASO B: SÍ HAY FLECHAS (Flujo normal) ---
+            this.botonAttackFinal = this.add.text(
+                this.scale.width * 0.88, this.scale.height * 0.555,
+                'Attack',
+                { fontFamily: 'Diogenes', fontSize: '27px', color: '#395436', padding: { x: 20, y: 10 } }
+            ).setOrigin(0.5).setInteractive();
 
-            // 2. Definir mapa de colores y variables
-            const colorMap = { 'banner_red': 'rojo', 'banner_green': 'verde', 'banner_blue': 'azul' };
-            let objetivos = [];
+            // Efecto Hover solo para el botón Attack válido
+            this.botonAttackFinal.on('pointerover', () => {
+                this.botonAttackFinal.setScale(1.1);
+                this.botonAttackFinal.setText(`>${this.botonAttackFinal.text}<`);
+            });
+            this.botonAttackFinal.on('pointerout', () => {
+                this.botonAttackFinal.setScale(1);
+                this.botonAttackFinal.setText(this.botonAttackFinal.text.replace(/>/g, '').replace(/</g, ''));
+            });
 
-            // 3. Ejecutar lógica según el modo
-            if (modo === "bool") {
-                // --- CARTAS: AND, OR, XOR ---
-                const colorL = colorMap[this.selectedLeft.texture.key];
-                const colorR = colorMap[this.selectedRight.texture.key];
-                const operacion = this.textoBool.text; // "AND", "OR", "XOR"
-
-                objetivos = this.territories.filter(t => {
-                    const tieneL = t.colores.includes(colorL);
-                    const tieneR = t.colores.includes(colorR);
-                    
-                    switch(operacion) {
-                        case 'AND': return tieneL && tieneR;
-                        case 'OR':  return tieneL || tieneR;
-                        // XOR: (Uno u otro) Y (No ambos)
-                        case 'XOR': return tieneL !== tieneR; 
-                        default: return false;
-                    }
-                });
-
-                // Limpieza visual
-                this.selectedLeft.destroy();
-                this.selectedRight.destroy();
-                this.textoBool.destroy();    
-
-            } else if (modo === "not") {
-                // --- CARTA: NOT ---
-                // Verifica que attackNot() defina this.selectedNotBanner
-                const color = colorMap[this.selectedNotBanner.texture.key];
+            // LISTENER: REALIZAR ATAQUE
+            this.botonAttackFinal.on('pointerdown', () => {
+                // Limpieza UI
+                this.botonCancel.destroy();
+                this.botonAttackFinal.destroy();
+                this.arrow.setVisible(false);
+                this.botonFlechasGasto.destroy();
                 
-                // Objetivo: Territorios que NO tienen ese color
-                objetivos = this.territories.filter(t => !t.colores.includes(color));
-                
-                // Limpieza visual
-                if (this.notBanners) this.notBanners.forEach(b => b.destroy());
-                this.textoBool.destroy();
+                // Restaurar color del texto original antes de que se actualice el número
+                this.botonflechasRestantes.setText(textoOriginal);
+                this.botonflechasRestantes.setStyle({ color: '#395436' });
 
-            } else if (modo === "generico") {
-                // --- CARTAS: COUNT, LIKE, FLARE ---
-                const valor = this.textoGenerico.text; // Ej: "1", "KLIF", "BEKSTENHOLM"
-                const cartaActual = this.cartaSeleccionada.cardKey; 
-
-                if (cartaActual === 'count') {
-                    // Ataca territorios con X colores exactos
-                    const numero = parseInt(valor, 10);
-                    objetivos = this.territories.filter(t => t.colores.length === numero);
-                
-                } else if (cartaActual === 'like') {
-                    // Ataca territorios cuyo nombre contenga el texto (ej: "KLIF")
-                    objetivos = this.territories.filter(t => t.key.toUpperCase().includes(valor));
-                
-                } else if (cartaActual === 'flare') {
-                    // Ataca al territorio exacto seleccionado
-                    objetivos = this.territories.filter(t => t.key.toUpperCase() === valor);
+                // Limpieza Específica
+                if (modo === "bool") {
+                    if (this.selectedLeft) this.selectedLeft.destroy();
+                    if (this.selectedRight) this.selectedRight.destroy();
+                    if (this.textoBool) this.textoBool.destroy();    
+                    this.selectedLeft = null; this.selectedRight = null;
+                } else if (modo === "not") {
+                    if (this.notBanners) this.notBanners.forEach(b => { if(b) b.destroy(); });
+                    if (this.textoBool) this.textoBool.destroy();
+                    this.selectedNotBanner = null;
+                } else if (modo === "generico") {
+                    if (this.textoGenerico) this.textoGenerico.destroy();
                 }
 
-                // Limpieza visual
-                this.textoGenerico.destroy();
+                // Ejecutar Daño
+                this.danarTerritorios(objetivos);
+
+                // Limpieza Flare y Finalizar
+                if (this.cleanupFlare) this.cleanupFlare();
+                this.logoIngles.setVisible(true);
+                if (this.resolveAttack) this.resolveAttack(true);
+            });
+        }
+
+        // ==========================================
+        // LISTENER: CANCELAR (Común para ambos casos)
+        // ==========================================
+        this.botonCancel.on('pointerdown', () => {
+            // Limpieza UI
+            this.arrow.setVisible(false);
+            if (this.botonFlechasGasto) this.botonFlechasGasto.destroy();
+            this.botonCancel.destroy();
+            // Destruimos botonAttackFinal (sea el botón "Attack" o el texto "No arrows left")
+            if (this.botonAttackFinal) this.botonAttackFinal.destroy();
+
+            // Limpieza Específica Segura
+            if (modo === "bool") {
+                if (this.selectedLeft) this.selectedLeft.destroy();
+                if (this.selectedRight) this.selectedRight.destroy();
+                if (this.textoBool) this.textoBool.destroy();    
+                this.selectedLeft = null; this.selectedRight = null;
+            } else if (modo === "not") {
+                if (this.notBanners) {
+                    this.notBanners.forEach(b => { if (b) b.destroy(); });
+                }
+                if (this.textoBool) this.textoBool.destroy();
+                this.selectedNotBanner = null;
+            } else if (modo === "generico") {
+                if (this.textoGenerico) this.textoGenerico.destroy();
             }
-
-            // 4. Aplicar daño a los territorios calculados
-            this.danarTerritorios(objetivos);
-
-            // RESOLVEMOS CON TRUE -> Indica que SÍ se gastó la carta
-            if (this.resolveAttack) this.resolveAttack(true);
+            
+            // Restaurar estado visual
+            this.botonflechasRestantes.setText(textoOriginal);
+            this.botonflechasRestantes.setStyle({ color: '#395436' });
+            this.logoIngles.setVisible(true);
+            
+            if (this.cleanupFlare) this.cleanupFlare();
+            if (this.resolveAttack) this.resolveAttack(false);
         });
     }
 
@@ -1326,7 +1478,7 @@ export default class Board extends Phaser.Scene {
         // Simplificamos usando la Y que ya tenían o calculándola de nuevo:
         let yBase = 0;
         if (tipo === 'guerrero') yBase = esArriba ? 55 : -55;
-        else yBase = (['klifstenvik', 'bekstenholm', 'aestensand'].includes(territorio.key)) ? -5 : 0;
+        else yBase = (['klifstenvik', 'bekstenholm', 'aestensand'].includes(territorio.key)) ? -5 : 5;
 
         stackVisual.forEach((ficha, i) => {
             ficha.setVisible(true);
@@ -1385,7 +1537,7 @@ export default class Board extends Phaser.Scene {
         const esArriba = nombreArriba.includes(territorio.key);
         let yBase = 0;
         if (tipo === 'guerrero') yBase = esArriba ? 55 : -55;
-        else yBase = (['klifstenvik', 'bekstenholm', 'aestensand'].includes(territorio.key)) ? -5 : 0;
+        else yBase = (['klifstenvik', 'bekstenholm', 'aestensand'].includes(territorio.key)) ? -5 : 5;
 
         unidades.forEach((ficha, i) => {
             ficha.setVisible(true);
@@ -1466,117 +1618,199 @@ export default class Board extends Phaser.Scene {
         return new Promise((resolve) => {
             console.log("Iniciando movimiento de guerrero...");
             
+            // ACTIVAMOS LA BANDERA: Bloquea el listener normal de colocar guerreros
+            this.isMovingWarrior = true;
+
             // 1. Crear Botón de Cancelar
             const btnCancel = this.add.text(
-                this.scale.width * 0.5, this.scale.height * 0.55, 'Cancel',
-                { fontFamily: 'Diogenes', fontSize: '27px', color: '#395436', backgroundColor: '#000000' }
-            ).setOrigin(0.5).setInteractive().setDepth(100); // Depth alto para estar encima de todo
+                this.scale.width * 0.89, this.scale.height * 0.535, 'Cancel',
+                { fontFamily: 'Diogenes', fontSize: '32px', color: '#395436'}
+            ).setOrigin(0.5).setInteractive().setDepth(100);
+
+            btnCancel.on('pointerover', () => {
+                btnCancel.setScale(1.1);
+                btnCancel.setText(`>${btnCancel.text}<`);
+            });
+
+            btnCancel.on('pointerout', () => {
+                btnCancel.setScale(1);
+                btnCancel.setText(btnCancel.text.replace(/>/g, '').replace(/</g, ''));
+            });
 
             // 2. Crear Texto de Instrucciones
             const instrucciones = this.add.text(
-                this.scale.width * 0.5, this.scale.height * 0.5,
+                this.scale.width * 0.82, this.scale.height * 0.5,
                 'Click on the origin territory\nof the warrior',
-                { fontFamily: 'Diogenes', fontSize: '30px', color: '#395436', align: 'center' }
+                { fontFamily: 'Diogenes', fontSize: '28px', color: '#395436', padding: { x: 20, y: 10 } }
             ).setOrigin(0.5).setDepth(100);
 
-            // Variables de estado local para esta función
-            let fase = 'origen'; // 'origen' o 'destino'
+            let fase = 'origen';
             let territorioOrigen = null;
 
-            // Función de limpieza (Resetear tablero y UI)
+            // Función de limpieza SEGURA
             const limpiarUI = () => {
+                // DESACTIVAMOS LA BANDERA: El juego vuelve a la normalidad
+                this.isMovingWarrior = false;
+
                 btnCancel.destroy();
                 instrucciones.destroy();
+                
                 this.territories.forEach(t => {
-                    t.clearTint();
+                    t.list[0].clearTint(); 
                     t.setAlpha(1);
-                    t.off('pointerdown'); // Importante: quitar listeners temporales
+                    
+                    // CORRECCIÓN CRÍTICA: Borrar SOLO el listener temporal
+                    if (t.tempMoveListener) {
+                        t.off('pointerdown', t.tempMoveListener);
+                        t.tempMoveListener = null;
+                    }
                 });
             };
 
-            // === LISTENER CANCELAR ===
+            // Listener del botón cancelar
             btnCancel.on('pointerdown', () => {
                 limpiarUI();
-                resolve(false); // Retorna false (no gastar carta)
+                resolve(false); 
             });
 
-            // === CONFIGURAR TERRITORIOS ===
+            // === CONFIGURAR TERRITORIOS CON LISTENER ESPECÍFICO ===
             this.territories.forEach(territorio => {
-                territorio.setInteractive();
-
-                territorio.on('pointerdown', () => {
+                
+                // Definimos la función y la guardamos en una variable
+                const moveListener = () => {
                     // --- FASE 1: SELECCIONAR ORIGEN ---
                     if (fase === 'origen') {
                         const guerreros = territorio.list.filter(c => c.tipo === 'guerrero');
                         
-                        // Solo válido si tiene guerreros
                         if (guerreros.length > 0) {
                             territorioOrigen = territorio;
                             fase = 'destino';
                             
                             // Feedback Visual
-                            territorio.setTint(0x00ff00); // Verde para el origen
+                            territorio.list[0].setTint(0x00ff00); 
                             instrucciones.setText('Click on the destination territory\nof the warrior');
                             
-                            // Obtener vecinos válidos
+                            // Oscurecer no adyacentes
                             const vecinos = this.adyacencias[territorio.key];
-
-                            // Oscurecer los NO adyacentes y el propio origen
                             this.territories.forEach(t => {
-                                if (!vecinos.includes(t.key)) {
-                                    t.setAlpha(0.5); // Apagar los no válidos
-                                }
+                                if (!vecinos.includes(t.key)) t.setAlpha(0.5); 
                             });
                         } else {
-                            // Feedback de error (opcional): Shake o sonido
                             console.log("Este territorio no tiene guerreros.");
                         }
                     } 
                     // --- FASE 2: SELECCIONAR DESTINO ---
                     else if (fase === 'destino') {
-                        // Verificar si es vecino válido
                         const esVecino = this.adyacencias[territorioOrigen.key].includes(territorio.key);
                         
                         if (esVecino) {
-                            // === EJECUTAR MOVIMIENTO ===
-                            
                             // 1. Quitar del Origen
                             const listaGuerreros = territorioOrigen.list.filter(c => c.tipo === 'guerrero');
-                            const guerreroA_Mover = listaGuerreros[listaGuerreros.length - 1]; // El último
+                            const guerreroA_Mover = listaGuerreros[listaGuerreros.length - 1]; 
                             guerreroA_Mover.destroy();
                             
                             // 2. Poner en Destino
-                            // Usamos colocarGuerrero pero "manualmente" para evitar logs extra o restricciones
-                            // Simplemente añadimos la imagen y actualizamos el stack
-                            // Calculamos Y base (depende si es territorio de arriba o abajo)
                             const nombreArriba = ['klifdalholm', 'beknesvik', 'aenesholm', 'bekdalsand'];
                             const yBase = nombreArriba.includes(territorio.key) ? 55 : -55;
-                            
                             const nuevoGuerrero = this.add.image(0, yBase, 'guerrero').setScale(0.47);
                             nuevoGuerrero.tipo = 'guerrero';
                             territorio.add(nuevoGuerrero);
 
-                            // 3. Actualizar Pilas Visuales (Stacking)
-                            this.apilarFichasEnCentro(territorioOrigen, 'guerrero'); // Refrescar origen
-                            this.apilarFichasEnCentro(territorio, 'guerrero');       // Refrescar destino
+                            // 3. Actualizar Pilas
+                            this.apilarFichasEnCentro(territorioOrigen, 'guerrero');
+                            this.apilarFichasEnCentro(territorio, 'guerrero');      
 
-                            // 4. Feedback Visual Final (Parpadeo Destino)
+                            // 4. Feedback
                             this.tweens.add({
-                                targets: territorio.list[0], // Imagen de fondo del territorio
-                                alpha: 0.2,
-                                yoyo: true,
-                                duration: 150,
-                                repeat: 2
+                                targets: territorio.list[0],
+                                alpha: 0.2, yoyo: true, duration: 150, repeat: 2
                             });
 
-                            // 5. Finalizar
                             limpiarUI();
-                            resolve(true); // Retorna true (gastar carta)
+                            resolve(true); 
                         }
                     }
-                });
+                };
+
+                // Asignamos el listener Y LO GUARDAMOS EN EL OBJETO para borrarlo luego
+                territorio.tempMoveListener = moveListener;
+                territorio.on('pointerdown', moveListener);
             });
         });
+    }
+
+    // ============================================================
+    // AUXILIAR: Calcular objetivos según la selección actual
+    // ============================================================
+    obtenerObjetivosActuales(modo) {
+        const colorMap = { 'banner_red': 'rojo', 'banner_green': 'verde', 'banner_blue': 'azul' };
+        let objetivos = [];
+
+        if (modo === "bool") {
+            const colorL = colorMap[this.selectedLeft.texture.key];
+            const colorR = colorMap[this.selectedRight.texture.key];
+            const operacion = this.textoBool.text; 
+
+            objetivos = this.territories.filter(t => {
+                const tieneL = t.colores.includes(colorL);
+                const tieneR = t.colores.includes(colorR);
+                switch(operacion) {
+                    case 'AND': return tieneL && tieneR;
+                    case 'OR':  return tieneL || tieneR;
+                    case 'XOR': return tieneL !== tieneR; 
+                    default: return false;
+                }
+            });
+
+        } else if (modo === "not") {
+            const color = colorMap[this.selectedNotBanner.texture.key];
+            objetivos = this.territories.filter(t => !t.colores.includes(color));
+
+        } else if (modo === "generico") {
+            const valor = this.textoGenerico.text;
+            const cartaActual = this.cartaSeleccionada.cardKey; 
+
+            if (cartaActual === 'count') {
+                const numero = parseInt(valor, 10);
+                objetivos = this.territories.filter(t => t.colores.length === numero);
+            } else if (cartaActual === 'like') {
+                objetivos = this.territories.filter(t => t.key.toUpperCase().includes(valor));
+            } else if (cartaActual === 'flare') {
+                objetivos = this.territories.filter(t => t.key.toUpperCase() === valor);
+            }
+        }
+        
+        return objetivos;
+    }
+
+    // ============================================================
+    // CALCULAR PUNTUACIÓN FINAL
+    // ============================================================
+    calcularPuntuacionFinal() {
+        // 1. Territorios no destruidos (+10 c/u)
+        const territoriosVivos = this.territories.filter(t => !t.destruido).length;
+        const puntosTerritorios = territoriosVivos * 10;
+
+        // 2. Flechas restantes (+1 c/u)
+        const textoFlechas = this.botonflechasRestantes.text.replace('x', '');
+        const flechasRestantes = parseInt(textoFlechas, 10);
+        const puntosFlechas = flechasRestantes * 1;
+
+        // 3. Orcos en el mapa (-3 c/u)
+        let totalOrcos = 0;
+        this.territories.forEach(t => {
+            totalOrcos += t.list.filter(c => c.tipo === 'orco').length;
+        });
+        const puntosOrcos = totalOrcos * -3;
+
+        const total = puntosTerritorios + puntosFlechas + puntosOrcos;
+
+        console.log(`Puntuación: Territorios(${puntosTerritorios}) + Flechas(${puntosFlechas}) - Orcos(${Math.abs(puntosOrcos)}) = ${total}`);
+
+        return {
+            total: total,
+            desglose: `Territories: +${puntosTerritorios} | Arrows: +${puntosFlechas} | Orcs: ${puntosOrcos}`
+        };
     }
 
 }

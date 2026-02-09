@@ -1,5 +1,6 @@
 import Board from './scenes/Board.js';
 import Menu from './scenes/Menu.js';
+import End from './scenes/End.js';
 
 const config = {
     type: Phaser.AUTO,
@@ -11,8 +12,9 @@ const config = {
     backgroundColor: '#000000',
     pixelArt: false,
     scene: [
+        Menu,
         Board,
-        Menu
+        End
     ],
     scale: {
         mode: Phaser.Scale.FIT,
