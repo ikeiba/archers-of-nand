@@ -881,9 +881,9 @@ export default class Board extends Phaser.Scene {
 
             // 2. Instrucciones
             const instrucciones = this.add.text(
-                this.scale.width * 0.82, this.scale.height * 0.5,
+                this.scale.width * 0.80, this.scale.height * 0.5,
                 'Click on the origin territory\nof the warrior',
-                { fontFamily: 'Diogenes', fontSize: '28px', color: '#395436', padding: { x: 20, y: 10 } }
+                { fontFamily: 'Diogenes', fontSize: '26px', color: '#395436', padding: { x: 20, y: 10 } }
             ).setOrigin(0.5).setDepth(100);
 
             let fase = 'origen';
