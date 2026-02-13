@@ -1,7 +1,7 @@
 // src/config/GameConstants.js
 
 export const COLORES = {
-    TEXTO_PRINCIPAL: '#395436', // Verde oscuro característico
+    TEXTO_PRINCIPAL: '#395436', // Verde oscuro
     TEXTO_ERROR: '#FF0000',     // Rojo para "No arrows" o "You lost"
     TEXTO_OSCURO: '#000000',    // Para puntuaciones
     BLANCO: '#ffffff',
@@ -19,7 +19,7 @@ export const FUENTES = {
     TAMANO_HUD: '27px'
 };
 
-// Mapa de vecinos (Adjacency List)
+// Mapa de vecinos 
 export const ADYACENCIAS = {
     'bekstenholm': ['klifstenvik', 'beknesvik', 'aenesholm', 'aestensand', 'bekdalsand', 'klifdalholm'],
     'klifstenvik': ['bekstenholm', 'klifdalholm', 'beknesvik'],
@@ -31,7 +31,6 @@ export const ADYACENCIAS = {
 };
 
 // Posiciones relativas (Porcentajes del ancho/alto de pantalla)
-// Esto facilita ajustar la UI en un solo sitio
 export const POSICIONES = {
     LOGO: { x: 0.795, y: 0.5 },
     LOGO_ES: { x: 0.82, y: 0.5 },

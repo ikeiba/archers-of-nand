@@ -19,7 +19,7 @@ export default class AttackManager {
     // PUNTO DE ENTRADA PRINCIPAL
     // ============================================================
     initiateAttack(cardKey, onReadyCallback) {
-        this.onReadyToConfirm = onReadyCallback; // Función de Board.js para mostrar botones Cancel/Attack
+        this.onReadyToConfirm = onReadyCallback;
         this.resetState();
 
         console.log(`AttackManager: Iniciando lógica para ${cardKey}`);
@@ -218,8 +218,7 @@ export default class AttackManager {
         }).setOrigin(0.5);
         this.selectionState.bannersList.push(instrucc);
 
-        // Activar listeners en territorios (delegamos en Board.js o accedemos a ellos)
-        // Como los territorios son objetos de la escena, podemos iterarlos
+        // Activar listeners en territorios
         this.scene.territories.forEach(t => {
             // Guardamos referencias para limpiar luego
             const onDown = () => {
@@ -227,7 +226,6 @@ export default class AttackManager {
                 this.cleanupFlareListeners(); // Limpieza inmediata de interacción
             };
             
-            // Usamos el sistema _flareListeners que implementamos en Fase 3
             t._flareListeners = {
                 over: () => t.list[0].setTint(COLORES.TINT_HOVER),
                 out: () => t.list[0].clearTint(),
@@ -270,7 +268,7 @@ export default class AttackManager {
     }
 
     // ============================================================
-    // CÁLCULO DE OBJETIVOS (Lógica pura)
+    // CÁLCULO DE OBJETIVOS
     // ============================================================
     calculateTargets(territories, cardKey) {
         const colorMap = { 'banner_red': 'rojo', 'banner_green': 'verde', 'banner_blue': 'azul' };

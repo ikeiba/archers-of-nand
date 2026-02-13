@@ -95,7 +95,7 @@ export default class Territory extends Phaser.GameObjects.Container {
     }
 
     // ============================================================
-    // LÓGICA VISUAL (APILADO VS LINEAL)
+    // LÓGICA VISUAL
     // ============================================================
     
     actualizarVisualizacion(tipo) {

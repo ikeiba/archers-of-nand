@@ -186,28 +186,22 @@ export default class Board extends Phaser.Scene {
         ).setOrigin(0.5).setInteractive().setVisible(false);
 
         // --- 7. INICIALIZACIÓN DE LÓGICA ---
-        this.configurarInputMonedas(); // [NUEVO] Método extraído        
-        this.inicializarHordas(); // Método extraído abajo
-        this.crearCartasAtaque(w, h); // Método extraído abajo
-        this.configurarListenersBotones(); // Método extraído abajo
+        this.configurarInputMonedas();      
+        this.inicializarHordas();
+        this.crearCartasAtaque(w, h);
+        this.configurarListenersBotones(); 
         
         this.attackManager = new AttackManager(this);
         this.coinManager = new CoinManager(this); // [NUEVO]
     }
 
-    // ... AQUI EMPEZARÍAN TUS MÉTODOS AUXILIARES ...
-    // He extraído código del create() a funciones pequeñas para que veas lo limpio que queda.
-    // Tienes que copiar los bloques de lógica de tu create() y meterlos en estas funciones:
-
     configurarListenersTerritorios() {
         this.territories.forEach(t => {
-            // NOTA: setSize y setInteractive ya se hacen dentro de Territory.js
-            // Solo añadimos el listener de lógica de juego aquí
             
             t.on('pointerdown', () => {
                 if (this.isMovingWarrior) return; 
                 if (this.estadoActual === this.estados.COLOCAR_GUERRERO) {
-                    // REFACTORIZADO: Usamos el método de la clase
+                    // Usamos el método de la clase
                     t.addWarrior(); 
                     
                     // Log
@@ -228,7 +222,7 @@ export default class Board extends Phaser.Scene {
     }
 
     crearCartasAtaque(w, h) {
-        // Pega aquí la creación de attackCards y sus listeners
+        // Creación de attackCards y sus listeners
         const attack_card_scale = 0.35;
         this.attackCardKeys = ['and', 'or', 'xor', 'count', 'like', 'flare', 'not'];
         this.attackCardPositions = [
@@ -245,7 +239,6 @@ export default class Board extends Phaser.Scene {
         }
         // Listener de cartas
         this.attackCards.forEach(card => {
-             // ... pega tu lógica de click en carta aquí ...
              card.on('pointerdown', () => {
                 if (this.estadoActual !== this.estados.SELECCIONAR_CARTA) return;
                 this.attackCards.forEach(c => { c.selected = false; c.setScale(attack_card_scale); c.setTint(COLORES.TINT_DISABLED); });
@@ -255,16 +248,15 @@ export default class Board extends Phaser.Scene {
                 this.botonesJuego.forEach(b => b.setVisible(true));
                 this.logoIngles.setVisible(false);
              });
-             // ... hovers ...
         });
     }
 
     configurarInputMonedas() {
         this.input.on('gameobjectdown', (pointer, obj) => {
             // 1. Validaciones
-            if (!this.coinManager.isCoin(obj)) return; // ¿Es una moneda?
+            if (!this.coinManager.isCoin(obj)) return;
             if (this.estadoActual !== this.estados.TIRAR_MONEDAS) return;
-            if (this.coinManager.isShuffling) return; // ¿Ya se están moviendo?
+            if (this.coinManager.isShuffling) return;
             if (this.currentHordeValue <= 0) return;
 
             // 2. Actualizar estado del juego
@@ -328,7 +320,6 @@ export default class Board extends Phaser.Scene {
 
     configurarListenersBotones() {
         // Aquí conectamos los botones (Discard, Move, Attack, Fight) a sus funciones
-        // Nota: Ya NO hace falta poner pointerover/out porque la clase TextButton lo hace sola
         
         // === LISTENERS DE BOTONES DE ACCIÓN ===
         this.botonDiscard.on('pointerdown', () => {
@@ -351,7 +342,7 @@ export default class Board extends Phaser.Scene {
         this.botonMoveWarrior.on('pointerdown', async () => {
             if (!this.cartaSeleccionada || this.cartasUsadas >= 2) return;
             
-            // [NUEVO] Cambiamos estado para BLOQUEAR la selección de otras cartas
+            // Cambiamos estado para BLOQUEAR la selección de otras cartas
             this.cambiarEstado(this.estados.EJECUTAR_ACCION);
 
             this.botonesJuego.forEach(b => b.setVisible(false));
@@ -369,7 +360,7 @@ export default class Board extends Phaser.Scene {
                 if (this.cartasUsadas === 2) {
                     this.cambiarEstado(this.estados.MELEE_FIGHT);
                 } else {
-                    // [NUEVO] Si queda otra carta, volvemos al estado de selección
+                    // Si queda otra carta, volvemos al estado de selección
                     this.cambiarEstado(this.estados.SELECCIONAR_CARTA);
                 }
             } else {
@@ -388,7 +379,7 @@ export default class Board extends Phaser.Scene {
         this.botonAttack.on('pointerdown', async () => {
             if (!this.cartaSeleccionada || this.cartasUsadas >= 2) return;
             
-            // [NUEVO] Cambiamos estado para BLOQUEAR la selección de otras cartas
+            // Cambiamos estado para BLOQUEAR la selección de otras cartas
             this.cambiarEstado(this.estados.EJECUTAR_ACCION);
 
             this.botonesJuego.forEach(b => b.setVisible(false));
@@ -406,7 +397,7 @@ export default class Board extends Phaser.Scene {
                 if (this.cartasUsadas === 2) {
                     this.cambiarEstado(this.estados.MELEE_FIGHT);
                 } else {
-                    // [NUEVO] Si queda otra carta, volvemos al estado de selección
+                    // Si queda otra carta, volvemos al estado de selección
                     this.cambiarEstado(this.estados.SELECCIONAR_CARTA);
                 }
             } else {
@@ -458,13 +449,13 @@ export default class Board extends Phaser.Scene {
                 this.botonesJuego.forEach(b => b.setVisible(false));
                 this.botonFight.setVisible(false);
                 this.textoMelee.setVisible(false);
-                // [NUEVO] Resetear monedas usando el Manager
+                // Resetear monedas usando el Manager
                 this.coinManager.reset();
                 break;
                 
             case this.estados.TIRAR_MONEDAS:
                 this.botonPosicionarGuerrero.setVisible(false);
-                // [NUEVO] Mostrar monedas
+                // Mostrar monedas
                 this.coinManager.setVisible(true);
                 break;
                 
@@ -481,7 +472,7 @@ export default class Board extends Phaser.Scene {
                 this.botonesJuego.forEach(b => b.setVisible(false));
                 this.botonFight.setVisible(true);
                 this.textoMelee.setVisible(true);
-                // [NUEVO] Asegurar que el logo se oculta al entrar en combate
+                // Asegurar que el logo se oculta al entrar en combate
                 this.logoIngles.setVisible(false);
                 break;
         }
@@ -507,7 +498,7 @@ export default class Board extends Phaser.Scene {
     }
 
     // ============================================================
-    // COLOCAR ORCO (Actualizado)
+    // COLOCAR ORCO 
     // ============================================================
     colocarOrco(territorio) {
         if (this.estadoActual !== this.estados.TIRAR_MONEDAS) return;
@@ -521,7 +512,7 @@ export default class Board extends Phaser.Scene {
         // 1. Aumentamos el contador de rondas jugadas
         this.hordasJugadas++;
 
-        // 2. CHECK DE DERROTA: ¿4 o más territorios destruidos?
+        // 2. CHECK DE DERROTA
         const territoriosDestruidos = this.territories.filter(t => t.destruido).length;
         if (territoriosDestruidos >= 4) {
             console.log("GAME OVER: Demasiados territorios destruidos.");
@@ -529,7 +520,7 @@ export default class Board extends Phaser.Scene {
             return; // Importante: salir de la función para no seguir jugando
         }
 
-        // 3. CHECK DE VICTORIA: ¿Se acabaron las cartas de horda?
+        // 3. CHECK DE VICTORIA
         // Si hemos jugado las 10 rondas (o las que sean maxHordas) y seguimos vivos
         if (this.hordasJugadas >= this.maxHordas) {
             console.log("VICTORY: Has sobrevivido a todas las hordas.");
@@ -590,7 +581,6 @@ export default class Board extends Phaser.Scene {
             console.log(`Atacar con la carta: ${carta.cardKey}`);
             this.resolveAttack = resolve;
 
-            // Delegamos TODO al manager
             // Le pasamos una "callback" que el manager llamará cuando el jugador
             // haya elegido los banners o el territorio (el momento de mostrar "Attack/Cancel")
             this.attackManager.initiateAttack(carta.cardKey, (modo) => {
@@ -603,7 +593,6 @@ export default class Board extends Phaser.Scene {
     regenerarCartasUsadas() {
         // Destruir todas las cartas empty
         console.log("Regenerando cartas usadas...");
-        console
         this.cartasEmpty.forEach(e => e.destroy());
         this.cartasEmpty = [];
         
@@ -763,7 +752,7 @@ export default class Board extends Phaser.Scene {
                 territorio.hacerParpadeo(0xff0000);
             } else {
                 // Si fue fallo: Parpadeo Gris (Transparencia)
-                // Esto no está en la clase Territory, lo mantenemos aquí o podríamos añadir un método 'animarFallo()'
+                // Esto no está en la clase Territory
                 this.tweens.add({
                     targets: territorio.list[0], // La imagen de fondo
                     alpha: 0.5,
@@ -785,7 +774,7 @@ export default class Board extends Phaser.Scene {
         let costeTotal = 0;
 
         territorios.forEach(t => {
-            // REFACTORIZADO: Usamos los métodos de la clase Territory
+            // Usamos los métodos de la clase Territory
             const tieneOrcos = t.contarUnidades('orco') > 0;
             const tieneGuerreros = t.contarUnidades('guerrero') > 0;
 
@@ -869,7 +858,7 @@ export default class Board extends Phaser.Scene {
             
             this.isMovingWarrior = true;
 
-            // 1. Crear Botón de Cancelar (Manual, como acordamos)
+            // 1. Crear Botón de Cancelar
             const btnCancel = this.add.text(
                 this.scale.width * 0.89, this.scale.height * 0.535, 'Cancel',
                 { fontFamily: 'Diogenes', fontSize: '32px', color: '#395436'}
@@ -916,7 +905,7 @@ export default class Board extends Phaser.Scene {
                 const moveListener = () => {
                     // --- FASE 1: ORIGEN ---
                     if (fase === 'origen') {
-                        // REFACTORIZADO: Usamos contarUnidades
+                        // Usamos contarUnidades
                         if (territorio.contarUnidades('guerrero') > 0) {
                             territorioOrigen = territorio;
                             fase = 'destino';
@@ -939,7 +928,7 @@ export default class Board extends Phaser.Scene {
                         const esVecino = this.adyacencias[territorioOrigen.key].includes(territorio.key);
                         
                         if (esVecino) {
-                            // === EJECUTAR MOVIMIENTO (Lógica encapsulada) ===
+                            // === EJECUTAR MOVIMIENTO ===
                             
                             // 1. Quitar del Origen
                             territorioOrigen.removeLastUnit('guerrero');

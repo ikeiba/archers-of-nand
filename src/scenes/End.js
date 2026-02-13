@@ -60,13 +60,13 @@ export default class End extends Phaser.Scene {
             ease: 'Back.easeOut.0.8' // Llega un poco más abajo y retrocede suavemente
         });
 
-        // --- SUBTÍTULO (Puntuación o "You Lost") ---
+        // --- SUBTÍTULO  ---
         let subtitulo = '';
         let colorSub = '#FF0000'; // Rojo por defecto (derrota)
 
         if (this.resultado.win) {
             subtitulo = "You win!";
-            colorSub = '#395436'; // Negro para puntos
+            colorSub = '#395436'; 
             
             // Detalle opcional (aparece suavemente)
             if (this.resultado.details) {

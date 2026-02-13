@@ -37,7 +37,7 @@ export default class TextButton extends Phaser.GameObjects.Text {
         scene.add.existing(this);
     }
 
-    // Método para cambiar el texto pero mantener la referencia original para el hover
+    // Método para cambiar el texto
     actualizarTexto(nuevoTexto) {
         this.originalText = nuevoTexto;
         this.setText(nuevoTexto);
