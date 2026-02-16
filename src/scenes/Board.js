@@ -1,13 +1,21 @@
-import { COLORES, FUENTES, ADYACENCIAS, POSICIONES, GAME_CONFIG } from '../config/GameConstants.js';
+import { COLORES, FUENTES, ADYACENCIAS, POSICIONES, GAME_CONFIG, DIFICULTADES } from '../config/GameConstants.js';
 import TextButton from '../components/TextButton.js';
 import Territory from '../components/Territory.js';
 import AttackManager from '../managers/AttackManager.js';
 import CoinManager from '../managers/CoinManager.js';
+import TutorialManager from '../managers/TutorialManager.js';
 
 export default class Board extends Phaser.Scene {
     
     constructor() {
         super('Board');
+    }
+
+    init(data) {
+        // Recuperamos el flag tutorial, si no existe, es false
+        this.isTutorial = data && data.tutorial ? true : false;
+        // Si no nos pasan nada (por si recargas el navegador estando en Board), cargamos FACIL por defecto
+        this.configPartida = (data && data.mazo) ? data : DIFICULTADES.FACIL;
     }
 
     // ============================================================
@@ -140,13 +148,13 @@ export default class Board extends Phaser.Scene {
         // HUD: Contadores
         this.botonflechasRestantes = this.add.text(
             w * POSICIONES.HUD_FLECHAS.x, h * POSICIONES.HUD_FLECHAS.y,
-            `x${GAME_CONFIG.FLECHAS_INICIALES}`,
+            `x${this.configPartida.flechas}`, // [CAMBIADO]
             { fontFamily: FUENTES.PRINCIPAL, fontSize: FUENTES.TAMANO_HUD, color: COLORES.TEXTO_PRINCIPAL, padding: { x: 20, y: 10 } }
         ).setOrigin(0.5).setInteractive();
 
         this.botonhordasRestantes = this.add.text(
             w * POSICIONES.HUD_HORDAS.x, h * POSICIONES.HUD_HORDAS.y,
-            `x${GAME_CONFIG.HORDAS_INICIALES}`,
+            `x${this.configPartida.mazo.length}`, // [CAMBIADO]
             { fontFamily: FUENTES.PRINCIPAL, fontSize: FUENTES.TAMANO_HUD, color: COLORES.TEXTO_PRINCIPAL, padding: { x: 20, y: 10 } }
         ).setOrigin(0.5).setInteractive();
 
@@ -193,12 +201,19 @@ export default class Board extends Phaser.Scene {
         
         this.attackManager = new AttackManager(this);
         this.coinManager = new CoinManager(this); // [NUEVO]
+
+        // Iniciar el tutorial al final del create si el flag está activo
+        if (this.isTutorial) {
+            this.tutorialManager = new TutorialManager(this);
+        }
     }
 
     configurarListenersTerritorios() {
         this.territories.forEach(t => {
             
             t.on('pointerdown', () => {
+                // [NUEVO] Candado Tutorial
+                if (this.isTutorial && this.tutorialManager.bloquearJuego) return;
                 if (this.isMovingWarrior) return; 
                 if (this.estadoActual === this.estados.COLOCAR_GUERRERO) {
                     // Usamos el método de la clase
@@ -213,12 +228,36 @@ export default class Board extends Phaser.Scene {
         });
     }
 
+    // ============================================================
+    // GESTIÓN DEL MAZO DE HORDAS (ACTUALIZADO PARA DIFICULTAD)
+    // ============================================================
     inicializarHordas() {
-        this.maxHordas = GAME_CONFIG.MAX_HORDAS;
+        // Barajamos el array que nos mandó el menú
+        this.mazoHordas = Phaser.Utils.Array.Shuffle([...this.configPartida.mazo]);
+        this.maxHordas = this.mazoHordas.length;
         this.hordasJugadas = 0;
-        this.currentHorde = Phaser.Math.RND.pick(this.hordeCards);
-        this.currentHorde.setVisible(true);
-        this.currentHordeValue = parseInt(this.currentHorde.texture.key.replace('horde', ''), 10);
+        
+        // Empezamos la partida revelando la primera
+        this.sacarSiguienteHorda();
+    }
+
+    sacarSiguienteHorda() {
+        // Ocultar cualquier carta previa
+        this.hordeCards.forEach(c => c.setVisible(false));
+
+        if (this.hordasJugadas < this.maxHordas) {
+            // Coger el valor de la horda actual (3, 4 o 5)
+            const valor = this.mazoHordas[this.hordasJugadas];
+            this.currentHordeValue = valor;
+
+            // Encontrar el sprite adecuado y mostrarlo
+            this.currentHorde = this.hordeCards.find(c => c.texture.key === `horde${valor}`);
+            if (this.currentHorde) this.currentHorde.setVisible(true);
+
+            // Actualizar texto del HUD (restantes incluye la actual)
+            const restantes = this.maxHordas - this.hordasJugadas;
+            this.botonhordasRestantes.setText(`x${restantes}`);
+        }
     }
 
     crearCartasAtaque(w, h) {
@@ -240,6 +279,8 @@ export default class Board extends Phaser.Scene {
         // Listener de cartas
         this.attackCards.forEach(card => {
              card.on('pointerdown', () => {
+                // [NUEVO] Candado Tutorial
+                if (this.isTutorial && this.tutorialManager.bloquearJuego) return;
                 if (this.estadoActual !== this.estados.SELECCIONAR_CARTA) return;
                 this.attackCards.forEach(c => { c.selected = false; c.setScale(attack_card_scale); c.setTint(COLORES.TINT_DISABLED); });
                 card.selected = true;
@@ -247,6 +288,8 @@ export default class Board extends Phaser.Scene {
                 this.cartaSeleccionada = card;
                 this.botonesJuego.forEach(b => b.setVisible(true));
                 this.logoIngles.setVisible(false);
+                // [NUEVO CHIVATO]
+                if (this.isTutorial) this.tutorialManager.avanzarSiEstaEnPaso(3);
              });
         });
     }
@@ -254,6 +297,8 @@ export default class Board extends Phaser.Scene {
     configurarInputMonedas() {
         this.input.on('gameobjectdown', (pointer, obj) => {
             // 1. Validaciones
+            // [NUEVO] Candado Tutorial
+            if (this.isTutorial && this.tutorialManager.bloquearJuego) return;
             if (!this.coinManager.isCoin(obj)) return;
             if (this.estadoActual !== this.estados.TIRAR_MONEDAS) return;
             if (this.coinManager.isShuffling) return;
@@ -284,16 +329,16 @@ export default class Board extends Phaser.Scene {
         if (resultados.length === 0) {
             if (this.archerBlank.visible) return;
             
-            // Perder una flecha (penalización)
+            // [CAMBIADO] Perder X flechas según la configuración
+            const penalizacion = this.configPartida.penalizacion;
+            
             const text = this.botonflechasRestantes.text;
             const current = parseInt(text.replace('x', ''), 10);
-            this.botonflechasRestantes.setText('x' + Math.max(current - 1, 0));
+            this.botonflechasRestantes.setText('x' + Math.max(current - penalizacion, 0));
             
-            // Feedback visual penalización
+            // ... (el feedback visual de archerBlank se queda igual) ...
             this.archerBlank.setVisible(true);
-            this.tweens.add({
-                targets: this.archerBlank, alpha: 0, yoyo: true, repeat: 2, duration: 150
-            });
+            this.tweens.add({ targets: this.archerBlank, alpha: 0, yoyo: true, repeat: 2, duration: 150 });
             this.archerRight.setVisible(false);
             return;
         }
@@ -323,6 +368,11 @@ export default class Board extends Phaser.Scene {
         
         // === LISTENERS DE BOTONES DE ACCIÓN ===
         this.botonDiscard.on('pointerdown', () => {
+            // [NUEVO] Bloquear en tutorial y avisar
+            if (this.isTutorial) {
+                this.tutorialManager.mostrarAviso("Focus on learning! You cannot discard cards in the tutorial.");
+                return;
+            }
             if (!this.cartaSeleccionada || this.cartasUsadas >= 2) return;
             
             this.colocarCartaEmpty(this.cartaSeleccionada);
@@ -340,6 +390,11 @@ export default class Board extends Phaser.Scene {
 
         // Listener de Move Warrior
         this.botonMoveWarrior.on('pointerdown', async () => {
+            // [NUEVO] Bloquear en tutorial y avisar
+            if (this.isTutorial) {
+                this.tutorialManager.mostrarAviso("Focus on learning! You cannot move warriors in the tutorial.");
+                return;
+            }
             if (!this.cartaSeleccionada || this.cartasUsadas >= 2) return;
             
             // Cambiamos estado para BLOQUEAR la selección de otras cartas
@@ -415,8 +470,14 @@ export default class Board extends Phaser.Scene {
         });
 
         this.botonFight.on('pointerdown', () => {
+            // [NUEVO] Ocultar inmediatamente para evitar dobles clics
+            this.botonFight.setVisible(false);
+            this.textoMelee.setVisible(false);
+            
             // 1. Resolver el combate cuerpo a cuerpo primero
             this.resolverCombate();
+            // [NUEVO CHIVATO]
+            if (this.isTutorial) this.tutorialManager.avanzarSiEstaEnPaso(5);
 
             // 2. Avanzar la ronda (cambiar cartas, regenerar, etc.)
             // Damos un pequeño delay para que se vea la muerte de las fichas antes del reset
@@ -457,6 +518,8 @@ export default class Board extends Phaser.Scene {
                 this.botonPosicionarGuerrero.setVisible(false);
                 // Mostrar monedas
                 this.coinManager.setVisible(true);
+                // [NUEVO CHIVATO] Avanzamos al paso 2
+                if (this.isTutorial) this.tutorialManager.avanzarSiEstaEnPaso(1);
                 break;
                 
             case this.estados.SELECCIONAR_CARTA:
@@ -466,6 +529,8 @@ export default class Board extends Phaser.Scene {
                     c.clearTint();
                     c.setInteractive();
                 });
+                // [NUEVO CHIVATO] Avanzamos al paso 3
+                if (this.isTutorial) this.tutorialManager.avanzarSiEstaEnPaso(2);
                 break;
                 
             case this.estados.MELEE_FIGHT:
@@ -474,6 +539,8 @@ export default class Board extends Phaser.Scene {
                 this.textoMelee.setVisible(true);
                 // Asegurar que el logo se oculta al entrar en combate
                 this.logoIngles.setVisible(false);
+                // [NUEVO CHIVATO] Avanzamos al paso 5
+                if (this.isTutorial) this.tutorialManager.avanzarSiEstaEnPaso(4);                
                 break;
         }
     }
@@ -534,27 +601,8 @@ export default class Board extends Phaser.Scene {
         }
 
         // 4. Si no ha terminado, continuamos la partida
-        this.cambiarCartaHorda();
+        this.sacarSiguienteHorda(); // [CAMBIADO]
     }
-
-    // ============================================================
-    // CAMBIAR CARTA DE HORDA
-    // ============================================================
-    cambiarCartaHorda() {
-        this.currentHorde.setVisible(false);
-
-        let nuevaCarta = Phaser.Math.RND.pick(this.hordeCards);
-
-        this.currentHorde = nuevaCarta;
-        this.currentHorde.setVisible(true);
-        this.currentHordeValue = parseInt(this.currentHorde.texture.key.replace('horde', ''), 10);
-
-        // Actualizar contador visual de hordas restantes
-        const text = this.botonhordasRestantes.text;
-        const current = parseInt(text.replace('x', ''), 10);
-        this.botonhordasRestantes.setText('x' + Math.max(current - 1, 0));
-    }
-
 
     // ============================================================
     // COLOCAR CARTA EMPTY
@@ -642,6 +690,11 @@ export default class Board extends Phaser.Scene {
             'Cancel',
             { fontFamily: FUENTES.PRINCIPAL, fontSize: '27px', color: COLORES.TEXTO_PRINCIPAL, padding: { x: 20, y: 10 } }
         ).setOrigin(0.5).setInteractive();
+
+        // [NUEVO] Ocultar cancelar en tutorial para forzar que ataquen
+        if (this.isTutorial) {
+            this.botonCancel.setVisible(false);
+        }
 
         // Efectos Hover Cancelar
         this.botonCancel.on('pointerover', () => { this.botonCancel.setScale(1.1); this.botonCancel.setText(`>${this.botonCancel.text}<`); });

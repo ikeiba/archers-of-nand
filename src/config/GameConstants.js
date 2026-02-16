@@ -67,3 +67,21 @@ export const GAME_CONFIG = {
     FLECHAS_INICIALES: 50,
     HORDAS_INICIALES: 10
 };
+
+export const DIFICULTADES = {
+    FACIL: {
+        mazo: [3,3,3,3,3,4,4,4,4,4], // 10 hordas
+        flechas: 50,
+        penalizacion: 1
+    },
+    INTERMEDIO: {
+        mazo: [3,3,3,3,4,4,4,4,5,5,5,5], // 12 hordas
+        flechas: 48,
+        penalizacion: 2
+    },
+    DIFICIL: {
+        mazo: [3,3,3,3,3, 4,4,4,4,4, 5,5,5,5,5], // 15 hordas
+        flechas: 45,
+        penalizacion: 3
+    }
+};
