@@ -23,6 +23,14 @@ export default class Menu extends Phaser.Scene {
         this.diffView = this.add.container(0, 0).setVisible(false);
         this.customView = this.add.container(0, 0).setVisible(false);
 
+        // [NUEVO] Contenedores para Competitivo
+        this.compView = this.add.container(0, 0).setVisible(false);
+        this.compCustomView = this.add.container(0, 0).setVisible(false);
+
+        // [NUEVO]
+        this.createCompView(w, h);
+        this.createCompCustomView(w, h);
+
         // Construir las tres interfaces
         this.createMainView(w, h);
         this.createDiffView(w, h);
@@ -33,24 +41,33 @@ export default class Menu extends Phaser.Scene {
     // 1. VISTA PRINCIPAL
     // ==========================================
     createMainView(w, h) {
-        // Mantenemos la posición X en 0.86 como querías y aplicamos .setColor('#ffffff')
-        const btnStart = new TextButton(this, w * 0.86, h * 0.6, 'START', '52px', () => {
-            this.scene.start('Board', DIFICULTADES.FACIL); 
-        }).setColor('#ffffff');
-
-        // [NUEVO] Botón de Tutorial
-        const btnTutorial = new TextButton(this, w * 0.86, h * 0.80, 'TUTORIAL', '26px', () => {
-            // Le pasamos un flag especial y una configuración de 1 sola ronda
-            const configTutorial = { tutorial: true, mazo: [3,3], flechas: 50, penalizacion: 1 };
-            this.scene.start('Board', configTutorial); 
-        }).setColor('#ffffff');
-        
-        const btnSettings = new TextButton(this, w * 0.86, h * 0.70, 'DIFFICULTIES', '32px', () => {
+        // 1. Botón START (Ahora abre el menú de dificultades)
+        const btnStart = new TextButton(this, w * 0.86, h * 0.55, 'START', '48px', () => {
             this.mainView.setVisible(false);
             this.diffView.setVisible(true);
         }).setColor('#ffffff');
 
-        this.mainView.add([btnStart, btnSettings, btnTutorial]);
+        // 2. Botón COMPETITIVO (Abre su propio submenú)
+        // (He corregido la X a 0.86 para que quede alineado con los demás)
+        const btnComp = new TextButton(this, w * 0.86, h * 0.67, 'COMPETITIVE', '34px', () => {
+            this.mainView.setVisible(false);
+            this.compView.setVisible(true);
+        }).setColor('#ffffff');
+
+        // 3. Botón TUTORIAL
+        const btnTutorial = new TextButton(this, w * 0.86, h * 0.79, 'TUTORIAL', '34px', () => {
+            const configTutorial = { tutorial: true, mazo: [3,3], flechas: 50, penalizacion: 1 };
+            this.scene.start('Board', configTutorial); 
+        }).setColor('#ffffff');
+        
+        // 4. Botón CRÉDITOS
+        const btnCredits = new TextButton(this, w * 0.6, h * 0.95, 'CREDITS', '34px', () => {
+            this.scene.pause(); 
+            this.scene.launch('Credits', { origin: 'Menu' }); 
+        }).setColor('#ffffff');
+        
+        // Añadimos solo los 4 botones al contenedor
+        this.mainView.add([btnStart, btnComp, btnTutorial, btnCredits]);
     }
 
     // ==========================================
@@ -182,5 +199,97 @@ export default class Menu extends Phaser.Scene {
         }, false).setColor('#ffffff');
 
         this.customView.add([label, valTxt, btnMinus, btnPlus]);
+    }
+
+    // ==========================================
+    // 4. VISTA COMPETITIVA (Standard / Custom)
+    // ==========================================
+    createCompView(w, h) {
+        const panelOscuro = this.add.rectangle(w/2, h/2, w * 0.5, h * 0.75, 0x000000, 0.75);
+        this.compView.add(panelOscuro);
+
+        const title = this.add.text(w/2, h * 0.28, '- Competitive Match -', {fontFamily: FUENTES.PRINCIPAL, fontSize: '40px', color: '#ffffff'}).setOrigin(0.5);
+
+        const btnStandard = new TextButton(this, w/2, h * 0.45, 'Standard (10 Rounds)', '36px', () => {
+            const configComp = { isCompetitive: true, mazo: Array(10).fill(0), flechas: 50, penalizacion: 0 };
+            this.scene.start('Board', configComp); 
+        }).setColor('#ffffff');
+
+        const btnCustom = new TextButton(this, w/2, h * 0.58, 'Custom Match', '36px', () => {
+            this.compView.setVisible(false);
+            this.compCustomView.setVisible(true);
+        }).setColor('#ffffff');
+
+        // Texto informativo
+        const infoText = this.add.text(w/2, h * 0.72, '1v1 Asymmetric Gameplay', {
+            fontFamily: FUENTES.PRINCIPAL, fontSize: '24px', color: '#ffcc00'
+        }).setOrigin(0.5);
+
+        const btnBack = new TextButton(this, w/2, h * 0.82, 'Back', '28px', () => {
+            this.compView.setVisible(false);
+            this.mainView.setVisible(true);
+        }).setColor('#ffffff');
+
+        this.compView.add([title, btnStandard, btnCustom, infoText, btnBack]);
+    }
+
+    // ==========================================
+    // 5. VISTA COMPETITIVA PERSONALIZADA
+    // ==========================================
+    createCompCustomView(w, h) {
+        const panelOscuro = this.add.rectangle(w/2, h/2, w * 0.55, h * 0.65, 0x000000, 0.75);
+        this.compCustomView.add(panelOscuro);
+
+        this.compData = { rounds: 10, arrows: 50 };
+        const startY = h * 0.45;
+        const spacing = 60;
+
+        const title = this.add.text(w/2, h * 0.30, '- Custom 1v1 -', {fontFamily: FUENTES.PRINCIPAL, fontSize: '40px', color: '#ffffff'}).setOrigin(0.5);
+        this.compCustomView.add(title);
+
+        // Solo necesitamos dos filas
+        this.buildCompRow('Total Rounds', 'rounds', w/2, startY, 1, 30, 1);
+        this.buildCompRow('Initial Arrows', 'arrows', w/2, startY + spacing, 1, 120, 5); 
+
+        const btnPlay = new TextButton(this, w/2, h * 0.68, 'START MATCH', '40px', () => {
+            const customConfig = {
+                isCompetitive: true,
+                mazo: Array(this.compData.rounds).fill(0), // Array de ceros de longitud = rounds
+                flechas: this.compData.arrows,
+                penalizacion: 0
+            };
+            this.scene.start('Board', customConfig);
+        }).setColor('#ffffff');
+
+        const btnBack = new TextButton(this, w/2, h * 0.78, 'Back', '28px', () => {
+            this.compCustomView.setVisible(false);
+            this.compView.setVisible(true);
+        }).setColor('#ffffff');
+
+        this.compCustomView.add([btnPlay, btnBack]);
+    }
+
+    // HELPER PARA COMPETITIVO (Más sencillo, no suma hordas)
+    buildCompRow(labelTxt, key, centerX, y, min, max, step) {
+        const label = this.add.text(centerX - 90, y, labelTxt, {fontFamily: FUENTES.PRINCIPAL, fontSize: '24px', color: '#ffffff'}).setOrigin(1, 0.5);
+        const valTxt = this.add.text(centerX + 70, y, this.compData[key], {fontFamily: FUENTES.PRINCIPAL, fontSize: '26px', color: '#ffffff'}).setOrigin(0.5);
+
+        const btnMinus = new TextButton(this, centerX, y, '<', '26px', () => {
+            if(this.compData[key] > min) {
+                this.compData[key] -= step;
+                if(this.compData[key] < min) this.compData[key] = min;
+                valTxt.setText(this.compData[key]);
+            }
+        }, false).setColor('#ffffff');
+
+        const btnPlus = new TextButton(this, centerX + 140, y, '>', '26px', () => {
+            if(this.compData[key] < max) {
+                this.compData[key] += step;
+                if(this.compData[key] > max) this.compData[key] = max;
+                valTxt.setText(this.compData[key]);
+            }
+        }, false).setColor('#ffffff');
+
+        this.compCustomView.add([label, valTxt, btnMinus, btnPlus]);
     }
 }

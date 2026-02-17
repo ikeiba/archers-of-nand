@@ -1,6 +1,8 @@
 import Board from './scenes/Board.js';
 import Menu from './scenes/Menu.js';
 import End from './scenes/End.js';
+import Credits from './scenes/Credits.js';
+
 
 const config = {
     type: Phaser.AUTO,
@@ -14,7 +16,8 @@ const config = {
     scene: [
         Menu,
         Board,
-        End
+        End,
+        Credits
     ],
     scale: {
         mode: Phaser.Scale.FIT,

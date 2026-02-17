@@ -118,7 +118,7 @@ export default class End extends Phaser.Scene {
 
         this.tweens.add({
             targets: botonPlayAgain,
-            y: height * 0.87, // Destino final
+            y: height * 0.83, // Destino final
             alpha: 1,         // Se hace visible mientras sube
             duration: 800,
             delay: 1600,      // El último en aparecer
@@ -137,6 +137,41 @@ export default class End extends Phaser.Scene {
         botonPlayAgain.on('pointerout', () => {
             botonPlayAgain.setScale(1);
             botonPlayAgain.setText("Play Again");
+        });
+
+        // --- BOTÓN DE CRÉDITOS ---
+        // Lo colocamos en la misma columna (X) pero un poco más abajo (Y)
+        const botonCredits = this.add.text(
+            width * 0.83, 
+            height + 150, // Empieza fuera de la pantalla
+            'Credits',
+            { fontFamily: 'Diogenes', fontSize: '32px', color: '#395436' }
+        ).setOrigin(0.5).setInteractive().setAlpha(0);
+
+        // Animación de aparición (ligeramente más tarde que el Play Again)
+        this.tweens.add({
+            targets: botonCredits,
+            y: height * 0.91, // Posición final en pantalla
+            alpha: 1,
+            duration: 800,
+            delay: 1800, // 200ms después del botón principal
+            ease: 'Cubic.easeOut'
+        });
+
+        // Listeners del botón
+        botonCredits.on('pointerdown', () => {
+            this.scene.pause(); // Pausamos End
+            this.scene.launch('Credits', { origin: 'End' }); // Lanzamos Créditos por encima
+        });
+
+        botonCredits.on('pointerover', () => {
+            botonCredits.setScale(1.1);
+            botonCredits.setText('>Credits<');
+        });
+
+        botonCredits.on('pointerout', () => {
+            botonCredits.setScale(1);
+            botonCredits.setText('Credits');
         });
     }
 }

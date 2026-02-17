@@ -16,6 +16,7 @@ export default class Board extends Phaser.Scene {
         this.isTutorial = data && data.tutorial ? true : false;
         // Si no nos pasan nada (por si recargas el navegador estando en Board), cargamos FACIL por defecto
         this.configPartida = (data && data.mazo) ? data : DIFICULTADES.FACIL;
+        this.isCompetitive = data && data.isCompetitive ? true : false; // [NUEVO]
     }
 
     // ============================================================
@@ -87,7 +88,8 @@ export default class Board extends Phaser.Scene {
         // --- 1. CONFIGURACIÓN INICIAL ---
         this.estados = {
             COLOCAR_GUERRERO: 'colocar_guerrero',
-            TIRAR_MONEDAS: 'tirar_monedas',
+            TIRAR_MONEDAS: 'tirar_monedas', // Solo
+            SELECCIONAR_CARTA_ORCO: 'seleccionar_carta_orco', // [NUEVO] Competitivo
             SELECCIONAR_CARTA: 'seleccionar_carta',
             EJECUTAR_ACCION: 'ejecutar_accion',
             MELEE_FIGHT: 'melee_fight'
@@ -106,6 +108,16 @@ export default class Board extends Phaser.Scene {
 
         // --- 2. FONDO ---
         this.add.image(595, 359, 'background');
+
+        // --- 3. INDICADOR DE TURNO (NUEVO UI) ---
+        // Se coloca en la parte inferior de la pantalla
+        this.turnIndicatorText = this.add.text(w / 2, h * 0.95, '', { 
+            fontFamily: FUENTES.PRINCIPAL, 
+            fontSize: '32px', 
+            color: COLORES.TEXTO_PRINCIPAL,
+            backgroundColor: 'rgba(255, 255, 255, 0.7)',
+            padding: { x: 20, y: 5 }
+        }).setOrigin(0.5).setDepth(100).setVisible(!this.isTutorial);
 
         // --- 3. LOGOS ---
         this.logoCastellano = this.add.image(w * POSICIONES.LOGO_ES.x, h * POSICIONES.LOGO_ES.y, 'logo_spanish').setScale(0.2).setVisible(false);
@@ -193,6 +205,13 @@ export default class Board extends Phaser.Scene {
             { fontFamily: FUENTES.PRINCIPAL, fontSize: '30px', color: COLORES.TEXTO_PRINCIPAL, padding: { x: 10, y: 5 } }
         ).setOrigin(0.5).setInteractive().setVisible(false);
 
+        // [NUEVO] Cartel para saber de quién son las cartas
+        this.cartelMazo = this.add.text(
+            w * 0.81, h * 0.09, 
+            'HUMAN CARDS', 
+            { fontFamily: FUENTES.PRINCIPAL, fontSize: '26px', color: COLORES.TEXTO_PRINCIPAL}
+        ).setOrigin(0.5).setDepth(100).setVisible(this.isCompetitive);
+
         // --- 7. INICIALIZACIÓN DE LÓGICA ---
         this.configurarInputMonedas();      
         this.inicializarHordas();
@@ -206,6 +225,9 @@ export default class Board extends Phaser.Scene {
         if (this.isTutorial) {
             this.tutorialManager = new TutorialManager(this);
         }
+
+        // [NUEVO] Forzar la actualización visual del primer estado
+        this.cambiarEstado(this.estados.COLOCAR_GUERRERO);
     }
 
     configurarListenersTerritorios() {
@@ -222,7 +244,12 @@ export default class Board extends Phaser.Scene {
                     // Log
                     console.log(`${t.key}: Guerreros=${t.contarUnidades('guerrero')}, Orcos=${t.contarUnidades('orco')}`);
                     
-                    this.cambiarEstado(this.estados.TIRAR_MONEDAS);
+                    // [NUEVO] Si es competitivo, turno del Orco. Si es solo, turno de Monedas.
+                    if (this.isCompetitive) {
+                        this.cambiarEstado(this.estados.SELECCIONAR_CARTA_ORCO);
+                    } else {
+                        this.cambiarEstado(this.estados.TIRAR_MONEDAS);
+                    }
                 }
             });
         });
@@ -246,15 +273,19 @@ export default class Board extends Phaser.Scene {
         this.hordeCards.forEach(c => c.setVisible(false));
 
         if (this.hordasJugadas < this.maxHordas) {
-            // Coger el valor de la horda actual (3, 4 o 5)
             const valor = this.mazoHordas[this.hordasJugadas];
             this.currentHordeValue = valor;
 
-            // Encontrar el sprite adecuado y mostrarlo
-            this.currentHorde = this.hordeCards.find(c => c.texture.key === `horde${valor}`);
-            if (this.currentHorde) this.currentHorde.setVisible(true);
+            // [NUEVO] Lógica de visualización separada
+            if (valor > 0) {
+                this.currentHorde = this.hordeCards.find(c => c.texture.key === `horde${valor}`);
+                if (this.currentHorde) this.currentHorde.setVisible(true);
+            } else {
+                // En competitivo (valor 0), forzamos a mostrar la carta horde3 por estética
+                if (this.hordeCards.length > 0) this.hordeCards[0].setVisible(true);
+            }
 
-            // Actualizar texto del HUD (restantes incluye la actual)
+            // Actualizar texto del HUD
             const restantes = this.maxHordas - this.hordasJugadas;
             this.botonhordasRestantes.setText(`x${restantes}`);
         }
@@ -292,6 +323,62 @@ export default class Board extends Phaser.Scene {
                 if (this.isTutorial) this.tutorialManager.avanzarSiEstaEnPaso(3);
              });
         });
+
+        // [NUEVO] MAZO DEL JUGADOR ORCO (Solo si es competitivo)
+        if (this.isCompetitive) {
+            this.orcAttackCards = [];
+            
+            // Las creamos en la MISMA posición que las del humano, pero invisibles al inicio
+            for (let i = 0; i < 4; i++) {
+                const randomKey = Phaser.Utils.Array.GetRandom(this.attackCardKeys);
+                const pos = this.attackCardPositions[i]; // Misma posición
+                
+                const card = this.add.image(pos.x, pos.y, randomKey)
+                                 .setScale(attack_card_scale)
+                                 .setAlpha(0) // Inicialmente difuminadas y ocultas
+                                 .setInteractive();
+                
+                card.cardKey = randomKey;
+                this.orcAttackCards.push(card);
+
+                // Listener de la carta Orco
+                card.on('pointerdown', () => {
+                    if (this.estadoActual !== this.estados.SELECCIONAR_CARTA_ORCO) return;
+                    
+                    this.orcAttackCards.forEach(c => { c.selected = false; c.setScale(attack_card_scale); c.setTint(COLORES.TINT_DISABLED); });
+                    card.selected = true;
+                    card.clearTint();
+                    this.cartaSeleccionadaOrco = card;
+                    this.botonAccionOrco.setVisible(true);
+                    this.logoIngles.setVisible(false);
+                });
+            }
+
+            // Botón central para que el orco confirme usar su carta
+            this.botonAccionOrco = new TextButton(this, w * 0.81, h * 0.5, 'USE CARD', '30px').setVisible(false);
+            
+            this.botonAccionOrco.on('pointerdown', async () => {
+                this.cambiarEstado(this.estados.EJECUTAR_ACCION);
+                this.botonAccionOrco.setVisible(false);
+                
+                // Ejecutamos el ataque pasándole 'true' para indicar que es el Orco
+                const spawnRealizado = await this.attack(this.cartaSeleccionadaOrco, true); 
+                
+                if (spawnRealizado) {
+                    this.colocarCartaEmpty(this.cartaSeleccionadaOrco, true);
+                    this.cartaSeleccionadaOrco.setVisible(false);
+                    this.cartaSeleccionadaOrco = null;
+                    
+                    // Si el orco termina, le toca al humano
+                    this.cambiarEstado(this.estados.SELECCIONAR_CARTA); 
+                } else {
+                    this.cartaSeleccionadaOrco.selected = false;
+                    this.cartaSeleccionadaOrco.clearTint();
+                    this.cartaSeleccionadaOrco = null;
+                    this.cambiarEstado(this.estados.SELECCIONAR_CARTA_ORCO);
+                }
+            });
+        }
     }
 
     configurarInputMonedas() {
@@ -504,42 +591,88 @@ export default class Board extends Phaser.Scene {
         // Resetear visibilidad de elementos según el estado
         switch(nuevoEstado) {
             case this.estados.COLOCAR_GUERRERO:
+                // [NUEVO] Indicador de turno
+                this.turnIndicatorText.setText('HUMAN TURN: Deploy Warrior');
+                this.cartelMazo.setText('HUMAN CARDS').setColor(COLORES.TEXTO_PRINCIPAL); // [NUEVO]
+                
                 this.botonPosicionarGuerrero.setVisible(true);
-                // this.coins.forEach(coin => coin.setVisible(false));
                 this.logoIngles.setVisible(false);
                 this.botonesJuego.forEach(b => b.setVisible(false));
                 this.botonFight.setVisible(false);
                 this.textoMelee.setVisible(false);
-                // Resetear monedas usando el Manager
                 this.coinManager.reset();
+
+                // [MODIFICADO] Transición a 800ms y añadimos las cartas Empty Humanas
+                this.tweens.add({ targets: this.attackCards, alpha: 1, duration: 800 });
+                this.tweens.add({ targets: this.cartasEmpty.filter(c => !c.isOrc), alpha: 1, duration: 800 });
+                if (this.isCompetitive) {
+                    this.tweens.add({ targets: this.orcAttackCards, alpha: 0, duration: 800 });
+                    this.tweens.add({ targets: this.cartasEmpty.filter(c => c.isOrc), alpha: 0, duration: 800 });
+                }
                 break;
                 
             case this.estados.TIRAR_MONEDAS:
+                // [NUEVO] Indicador de turno
+                this.turnIndicatorText.setText('HORDE TURN: Flipping Coins');
+                
                 this.botonPosicionarGuerrero.setVisible(false);
-                // Mostrar monedas
                 this.coinManager.setVisible(true);
-                // [NUEVO CHIVATO] Avanzamos al paso 2
                 if (this.isTutorial) this.tutorialManager.avanzarSiEstaEnPaso(1);
+                break;
+            
+            case this.estados.SELECCIONAR_CARTA_ORCO:
+                // [NUEVO] Indicador de turno
+                this.turnIndicatorText.setText('ORC TURN: Select Action');
+                this.cartelMazo.setText('ORC CARDS').setColor('#ff3333'); // [NUEVO] Color rojo orco
+                
+                this.botonPosicionarGuerrero.setVisible(false);
+                this.logoIngles.setVisible(true); // Opcional, para rellenar hueco visual
+                
+                // [MODIFICADO] Ocultar humanas (y sus empty), Mostrar Orcas (y sus empty) a 800ms
+                this.tweens.add({ targets: this.attackCards, alpha: 0, duration: 800 });
+                this.tweens.add({ targets: this.cartasEmpty.filter(c => !c.isOrc), alpha: 0, duration: 800 });
+                this.tweens.add({ targets: this.orcAttackCards, alpha: 1, duration: 800 });
+                this.tweens.add({ targets: this.cartasEmpty.filter(c => c.isOrc), alpha: 1, duration: 800 });
+                
+                this.orcAttackCards.forEach(c => { c.clearTint(); c.setInteractive(); });
+                this.attackCards.forEach(c => c.disableInteractive());
                 break;
                 
             case this.estados.SELECCIONAR_CARTA:
+                // [NUEVO] Indicador de turno
+                this.turnIndicatorText.setText('HUMAN TURN: Select Action');
+                this.cartelMazo.setText('HUMAN CARDS').setColor(COLORES.TEXTO_PRINCIPAL); // [NUEVO]
+                
                 this.coinManager.setVisible(false);
                 this.logoIngles.setVisible(true);
-                this.attackCards.forEach(c => {
-                    c.clearTint();
-                    c.setInteractive();
-                });
-                // [NUEVO CHIVATO] Avanzamos al paso 3
+                
+                // [MODIFICADO] Mostrar humanas, Ocultar Orcas a 800ms
+                this.tweens.add({ targets: this.attackCards, alpha: 1, duration: 800 });
+                this.tweens.add({ targets: this.cartasEmpty.filter(c => !c.isOrc), alpha: 1, duration: 800 });
+                if (this.isCompetitive) {
+                    this.tweens.add({ targets: this.orcAttackCards, alpha: 0, duration: 800 });
+                    this.tweens.add({ targets: this.cartasEmpty.filter(c => c.isOrc), alpha: 0, duration: 800 });
+                    this.orcAttackCards.forEach(c => c.disableInteractive());
+                }
+
+                // Habilitamos clics humanos
+                this.attackCards.forEach(c => { c.clearTint(); c.setInteractive(); });
                 if (this.isTutorial) this.tutorialManager.avanzarSiEstaEnPaso(2);
+                break;
+
+            case this.estados.EJECUTAR_ACCION:
+                // Limpiamos el texto para que la UI de ataque (Banners/Boton Cancel) se vea limpia
+                // this.turnIndicatorText.setText(''); 
                 break;
                 
             case this.estados.MELEE_FIGHT:
+                // [NUEVO] Indicador de turno
+                this.turnIndicatorText.setText('MELEE FIGHT PHASE');
+                
                 this.botonesJuego.forEach(b => b.setVisible(false));
                 this.botonFight.setVisible(true);
                 this.textoMelee.setVisible(true);
-                // Asegurar que el logo se oculta al entrar en combate
                 this.logoIngles.setVisible(false);
-                // [NUEVO CHIVATO] Avanzamos al paso 5
                 if (this.isTutorial) this.tutorialManager.avanzarSiEstaEnPaso(4);                
                 break;
         }
@@ -607,13 +740,12 @@ export default class Board extends Phaser.Scene {
     // ============================================================
     // COLOCAR CARTA EMPTY
     // ============================================================
-    colocarCartaEmpty(carta) {
-        // Crear una nueva imagen empty en la posición de la carta
+    colocarCartaEmpty(carta, isOrc = false) {
         const nuevaEmpty = this.add.image(carta.x, carta.y, 'empty')
             .setScale(0.35)
             .setVisible(true);
         
-        // Guardar para poder atenuar después
+        nuevaEmpty.isOrc = isOrc; // [NUEVO] Etiquetamos de quién es la carta vacía
         this.cartasEmpty.push(nuevaEmpty);
     }
 
@@ -624,30 +756,27 @@ export default class Board extends Phaser.Scene {
         console.log("Empieza la batalla...");
     }
 
-    attack(carta) {
+    // [MODIFICADO] Añadimos isOrc = false
+    attack(carta, isOrc = false) {
         return new Promise((resolve) => {
             console.log(`Atacar con la carta: ${carta.cardKey}`);
             this.resolveAttack = resolve;
 
-            // Le pasamos una "callback" que el manager llamará cuando el jugador
-            // haya elegido los banners o el territorio (el momento de mostrar "Attack/Cancel")
             this.attackManager.initiateAttack(carta.cardKey, (modo) => {
-                this.setupAttackCancelButtons(modo);
+                // Le pasamos el parámetro a la interfaz de botones
+                this.setupAttackCancelButtons(modo, isOrc);
             });
         });
     }
 
 
     regenerarCartasUsadas() {
-        // Destruir todas las cartas empty
-        console.log("Regenerando cartas usadas...");
         this.cartasEmpty.forEach(e => e.destroy());
         this.cartasEmpty = [];
         
-        // Regenerar las cartas de ataque que estaban ocultas
+        // Regenerar Humanas
         this.attackCards.forEach(card => {
             if (!card.visible) {
-                // Elegir una nueva carta aleatoria
                 const randomKey = Phaser.Utils.Array.GetRandom(this.attackCardKeys);
                 card.setTexture(randomKey);
                 card.cardKey = randomKey;
@@ -655,103 +784,93 @@ export default class Board extends Phaser.Scene {
                 card.clearTint();
             }
         });
+
+        // [NUEVO] Regenerar Orcas (Si aplica)
+        if (this.isCompetitive) {
+            this.orcAttackCards.forEach(card => {
+                if (!card.visible) {
+                    const randomKey = Phaser.Utils.Array.GetRandom(this.attackCardKeys);
+                    card.setTexture(randomKey);
+                    card.cardKey = randomKey;
+                    card.setVisible(true);
+                    card.clearTint();
+                }
+            });
+        }
     }
 
-    setupAttackCancelButtons(modo) {
+    setupAttackCancelButtons(modo, isOrc = false) {
         const w = this.scale.width;
         const h = this.scale.height;
 
         // 1. PEDIR OBJETIVOS AL MANAGER
-        const objetivos = this.attackManager.calculateTargets(
-            this.territories, 
-            this.cartaSeleccionada.cardKey
-        );
+        const cartaActiva = isOrc ? this.cartaSeleccionadaOrco : this.cartaSeleccionada;
+        const objetivos = this.attackManager.calculateTargets(this.territories, cartaActiva.cardKey);
         
-        // 2. CÁLCULOS PREVIOS
-        const costePrevisto = this.calcularCosteFlechas(objetivos);
-        const textoOriginal = this.botonflechasRestantes.text;
-        const flechasActuales = parseInt(textoOriginal.replace('x', ''), 10);
+        // ==========================================
+        // RAMA A: TURNO DEL HUMANO
+        // ==========================================
+        if (!isOrc) {
+            const costePrevisto = this.calcularCosteFlechas(objetivos);
+            const textoOriginal = this.botonflechasRestantes.text;
+            const flechasActuales = parseInt(textoOriginal.replace('x', ''), 10);
 
-        // 3. ACTUALIZAR UI (PREVIEW)
-        // Mostramos el coste en rojo al lado del carcaj
-        this.botonflechasRestantes.setText(`${textoOriginal} -${costePrevisto}`);
-        this.botonflechasRestantes.setStyle({ color: COLORES.TEXTO_ERROR }); // Rojo
+            // UI de flechas
+            this.botonflechasRestantes.setText(`${textoOriginal} -${costePrevisto}`);
+            this.botonflechasRestantes.setStyle({ color: COLORES.TEXTO_ERROR });
+            this.arrow.setVisible(true);
+            this.botonFlechasGasto = this.add.text(w * 0.855, h * 0.485, `x${costePrevisto}`, { fontFamily: FUENTES.PRINCIPAL, fontSize: '27px', color: COLORES.TEXTO_PRINCIPAL }).setOrigin(0.5);
 
-        this.arrow.setVisible(true);
-        this.botonFlechasGasto = this.add.text(
-            w * 0.855, h * 0.485,
-            `x${costePrevisto}`,
-            { fontFamily: FUENTES.PRINCIPAL, fontSize: '27px', color: COLORES.TEXTO_PRINCIPAL, padding: { x: 20, y: 10 } }
-        ).setOrigin(0.5).setInteractive();
-
-        // 4. CREAR BOTÓN CANCELAR (Siempre igual)
-        this.botonCancel = this.add.text(
-            w * 0.74, h * 0.555,
-            'Cancel',
-            { fontFamily: FUENTES.PRINCIPAL, fontSize: '27px', color: COLORES.TEXTO_PRINCIPAL, padding: { x: 20, y: 10 } }
-        ).setOrigin(0.5).setInteractive();
-
-        // [NUEVO] Ocultar cancelar en tutorial para forzar que ataquen
-        if (this.isTutorial) {
-            this.botonCancel.setVisible(false);
-        }
-
-        // Efectos Hover Cancelar
-        this.botonCancel.on('pointerover', () => { this.botonCancel.setScale(1.1); this.botonCancel.setText(`>${this.botonCancel.text}<`); });
-        this.botonCancel.on('pointerout', () => { this.botonCancel.setScale(1); this.botonCancel.setText(this.botonCancel.text.replace(/>/g, '').replace(/</g, '')); });
-
-        // Listener Cancelar (Usando AttackManager)
-        this.botonCancel.on('pointerdown', () => {
-            this.limpiarInterfazAtaque(); // Función auxiliar para limpiar UI
-            
-            // LIMPIEZA DE LÓGICA (Delegada al Manager)
-            this.attackManager.cleanUp();
-            
-            // Restaurar textos
-            this.botonflechasRestantes.setText(textoOriginal);
-            this.botonflechasRestantes.setStyle({ color: COLORES.TEXTO_PRINCIPAL });
-            this.logoIngles.setVisible(true);
-
-            if (this.resolveAttack) this.resolveAttack(false);
-        });
-
-        // 5. LÓGICA DE VALIDACIÓN (Botón Attack vs No Arrows)
-        if (costePrevisto > flechasActuales) {
-            // A) NO HAY FLECHAS SUFICIENTES
-            this.botonAttackFinal = this.add.text(
-                w * 0.88, h * 0.555,
-                'NO ARROWS\nLEFT', 
-                { fontFamily: FUENTES.PRINCIPAL, fontSize: '20px', color: COLORES.TEXTO_ERROR, align: 'center', padding: { x: 5, y: 5 } }
-            ).setOrigin(0.5);
-            // No añadimos listener, solo se puede cancelar.
-
-        } else {
-            // B) SÍ HAY FLECHAS -> Botón Attack funcional
-            this.botonAttackFinal = this.add.text(
-                w * 0.88, h * 0.555,
-                'Attack',
-                { fontFamily: FUENTES.PRINCIPAL, fontSize: '27px', color: COLORES.TEXTO_PRINCIPAL, padding: { x: 20, y: 10 } }
-            ).setOrigin(0.5).setInteractive();
-
-            // Efectos Hover Attack
-            this.botonAttackFinal.on('pointerover', () => { this.botonAttackFinal.setScale(1.1); this.botonAttackFinal.setText(`>${this.botonAttackFinal.text}<`); });
-            this.botonAttackFinal.on('pointerout', () => { this.botonAttackFinal.setScale(1); this.botonAttackFinal.setText(this.botonAttackFinal.text.replace(/>/g, '').replace(/</g, '')); });
-
-            // Listener Atacar (Usando AttackManager)
-            this.botonAttackFinal.on('pointerdown', () => {
+            // Botón Cancelar
+            this.botonCancel = new TextButton(this, w * 0.74, h * 0.555, 'Cancel', '27px', () => {
                 this.limpiarInterfazAtaque();
-
-                // Restaurar estilo (el número se actualizará en danarTerritorios)
+                this.attackManager.cleanUp();
                 this.botonflechasRestantes.setText(textoOriginal);
                 this.botonflechasRestantes.setStyle({ color: COLORES.TEXTO_PRINCIPAL });
-
-                // LIMPIEZA DE LÓGICA (Delegada al Manager)
-                this.attackManager.cleanUp();
-
-                // Ejecutar daño
-                this.danarTerritorios(objetivos);
-
                 this.logoIngles.setVisible(true);
+                if (this.resolveAttack) this.resolveAttack(false);
+            });
+
+            if (this.isTutorial) this.botonCancel.setVisible(false); // Candado tutorial
+
+            // Lógica de Validación
+            if (costePrevisto > flechasActuales) {
+                this.botonAttackFinal = this.add.text(w * 0.88, h * 0.555, 'NO ARROWS\nLEFT', { fontFamily: FUENTES.PRINCIPAL, fontSize: '20px', color: COLORES.TEXTO_ERROR, align: 'center' }).setOrigin(0.5);
+            } else {
+                this.botonAttackFinal = new TextButton(this, w * 0.88, h * 0.555, 'Attack', '27px', () => {
+                    this.limpiarInterfazAtaque();
+                    this.botonflechasRestantes.setText(textoOriginal);
+                    this.botonflechasRestantes.setStyle({ color: COLORES.TEXTO_PRINCIPAL });
+                    this.attackManager.cleanUp();
+                    
+                    this.danarTerritorios(objetivos); // DAÑO HUMANO
+                    
+                    this.logoIngles.setVisible(true);
+                    if (this.resolveAttack) this.resolveAttack(true);
+                });
+            }
+        } 
+        // ==========================================
+        // RAMA B: TURNO DEL ORCO (Competitivo)
+        // ==========================================
+        else {
+            // El orco no gasta flechas, así que la UI es mucho más sencilla
+            this.botonCancel = new TextButton(this, w * 0.74, h * 0.555, 'Cancel', '26px', () => {
+                this.limpiarInterfazAtaque();
+                this.attackManager.cleanUp();
+                if (this.resolveAttack) this.resolveAttack(false);
+            });
+
+            this.botonAttackFinal = new TextButton(this, w * 0.88, h * 0.555, 'Spawn Orcs', '26px', () => {
+                this.limpiarInterfazAtaque();
+                this.attackManager.cleanUp();
+                
+                // INVOCAR ORCOS
+                objetivos.forEach(t => {
+                    t.addOrc();
+                    t.hacerParpadeo(0xffffff); // Parpadeo blanco
+                });
+
                 if (this.resolveAttack) this.resolveAttack(true);
             });
         }
