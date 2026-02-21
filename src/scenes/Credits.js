@@ -49,7 +49,7 @@ export default class Credits extends Phaser.Scene {
         this.add.text(w / 2, startY + spacing * 2 + 33, 'Ekaitz Polledo', styleNombre).setOrigin(0.5);
 
         // Versión Actual
-        this.add.text(w / 2, startY + spacing * 3, 'Current App Version & Refactor', styleRol).setOrigin(0.5);
+        this.add.text(w / 2, startY + spacing * 3, 'Current App Version', styleRol).setOrigin(0.5);
         this.add.text(w / 2, startY + spacing * 3 + 33, 'Iker Ibarrola Huarte', styleNombre).setOrigin(0.5);
 
         // 4. Botón dinámico para volver

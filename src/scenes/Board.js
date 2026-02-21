@@ -145,6 +145,14 @@ export default class Board extends Phaser.Scene {
             this.add.image(w * POSICIONES.DECK_HORDAS.x, h * POSICIONES.DECK_HORDAS.y, 'horde5').setScale(cardScale).setVisible(false)
         ];
         
+        // [NUEVO] Texto para los orcos extras (+X) en la esquina superior derecha de la carta
+        this.extraOrcsText = this.add.text(
+            w * POSICIONES.DECK_HORDAS.x + 55, 
+            h * POSICIONES.DECK_HORDAS.y - 75, 
+            '', 
+            { fontFamily: FUENTES.PRINCIPAL, fontSize: '46px', color: COLORES.TEXTO_ERROR, stroke: '#ffffff', strokeThickness: 5 }
+        ).setOrigin(0.5).setDepth(10).setVisible(false);
+
         this.quiver = this.add.image(w * POSICIONES.QUIVER.x, h * POSICIONES.QUIVER.y, 'quiver').setScale(cardScale);
         this.arrow = this.add.image(w * POSICIONES.ARROW_ICON.x, h * POSICIONES.ARROW_ICON.y, 'arrow').setScale(0.38).setVisible(false);
 
@@ -269,19 +277,47 @@ export default class Board extends Phaser.Scene {
     }
 
     sacarSiguienteHorda() {
-        // Ocultar cualquier carta previa
+        // Ocultar cualquier carta previa y el texto de extras
         this.hordeCards.forEach(c => c.setVisible(false));
+        if (this.extraOrcsText) this.extraOrcsText.setVisible(false);
 
         if (this.hordasJugadas < this.maxHordas) {
             const valor = this.mazoHordas[this.hordasJugadas];
-            this.currentHordeValue = valor;
+            
+            // --- [NUEVO] LÓGICA DE ORCOS EXTRAS ---
+            let orcosExtra = 0;
+            // Contamos cuántos territorios tienen 4 o más orcos
+            this.territories.forEach(t => {
+                if (t.contarUnidades('orco') >= 4) {
+                    orcosExtra++;
+                }
+            });
 
-            // [NUEVO] Lógica de visualización separada
+            // El valor real de la horda es el de la carta + los extras
+            this.currentHordeValue = valor + orcosExtra;
+
+            // --- LÓGICA DE VISUALIZACIÓN ---
             if (valor > 0) {
                 this.currentHorde = this.hordeCards.find(c => c.texture.key === `horde${valor}`);
                 if (this.currentHorde) this.currentHorde.setVisible(true);
+
+                // [NUEVO] Si hay orcos extra, mostramos el texto "+X"
+                if (orcosExtra > 0) {
+                    this.extraOrcsText.setText(`+${orcosExtra}`);
+                    this.extraOrcsText.setVisible(true);
+                    
+                    // Pequeña animación de "pálpito" para que llame la atención
+                    this.tweens.add({
+                        targets: this.extraOrcsText,
+                        scale: 1.3,
+                        yoyo: true,
+                        duration: 300,
+                        repeat: 1
+                    });
+                }
             } else {
                 // En competitivo (valor 0), forzamos a mostrar la carta horde3 por estética
+                // (En competitivo no se aplican los orcos extra por horda)
                 if (this.hordeCards.length > 0) this.hordeCards[0].setVisible(true);
             }
 
